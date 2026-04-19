@@ -602,6 +602,42 @@ ol.insight-list li { padding-left: 4px; }
 }
 .verify-dot { color: #ff9a6b; flex-shrink: 0; }
 
+/* ---- Work action buttons ---- */
+.work-actions {
+  display: flex;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.work-actions .surface-btn { flex: 1; }
+.work-actions .skip-btn { flex: 0 0 38%; }
+
+.skip-btn {
+  padding: 13px;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(233, 196, 106, 0.85);
+  font-family: 'Syne', sans-serif;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid rgba(233, 196, 106, 0.35);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+.skip-btn:hover:not(:disabled):not(.verifying) {
+  background: rgba(233, 196, 106, 0.08);
+  border-color: rgba(233, 196, 106, 0.6);
+  transform: translateY(-1px);
+}
+.skip-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.skip-btn.verifying { opacity: 0.65; cursor: wait; }
+
 /* ---- Surface button ---- */
 .surface-btn {
   width: 100%;

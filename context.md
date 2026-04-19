@@ -769,3 +769,122 @@ If you're working on your assigned component, do not touch files outside your wo
 
 *Last updated: 2026 — Deep Dive Hackathon Build*
 *Maintained by the Deep Dive team. All agents: read before building.*
+
+---
+
+## 17. Session Changelog — 2026-04-19
+
+This section captures everything changed in the most recent working session, so future agents (and humans) can pick up without re-reading diffs.
+
+### 17.1 Skip button on the Lock screen
+
+**Goal:** let a student bail out of the session at any time, but still land on a proper dashboard with a real score based on whatever they actually wrote — even if it's empty or incorrect. Surface still does the normal gated review.
+
+**Files touched**
+- `src/components/lock/LockScreen.jsx`
+  - New `skipping` state flag (separate from `verifying`).
+  - New `handleSkip()` runs the same `verifySubmission` pipeline as Surface, but **ignores** `completion_status` — it always calls `onSubmit()` so the user reaches the dashboard regardless of completeness.
+  - Empty textarea sends `"(No work submitted.)"` to Gemini so a report always comes back.
+  - On network failure, a hard-coded fallback report (score 0, status `incomplete`) is set so the dashboard still renders.
+  - Surface button wrapped with Skip in a new `.work-actions` flex container; Surface button stays disabled until the 20-word minimum, Skip has no word gate.
+  - Added `.skip-btn` to `LOCK_HOVER_SELECTORS` so the custom cursor snaps onto it.
+- `src/styles/lock.css`
+  - New `.work-actions` flex row (Skip ~38%, Surface takes the rest).
+  - New `.skip-btn` — outlined sand-color ghost button matching the amber palette but lighter than Surface.
+
+**Invariant to preserve:** Skip must never fail silently. If the Gemini call errors out, still advance to dashboard with a fallback report. The only thing that changed between "Surface" and "Skip" is the completion gate — not the analysis.
+
+### 17.2 Voice Tutor — Gemini Live API (Path B)
+
+**Goal:** a live, bidirectional voice coach the student can activate at any point during the session. Speaks aloud, listens back, never reveals answers. Visualizes both sides of the conversation. Uses the assignment analysis the app already computed.
+
+**API probe results (keep this — it answers "which model?")**
+The current `VITE_GEMINI_API_KEY` has Live API access. Models the key can use for `bidiGenerateContent`:
+- `gemini-2.5-flash-native-audio-latest` ← **in use**
+- `gemini-2.5-flash-native-audio-preview-09-2025`
+- `gemini-2.5-flash-native-audio-preview-12-2025`
+- `gemini-3.1-flash-live-preview`
+
+The older published model names (`gemini-2.5-flash-live-preview`, `gemini-2.0-flash-live-001`, `gemini-live-2.5-flash-preview`) return "model not found" on this key. Do **not** pick those by default.
+
+TTS-capable models available on this key (for future single-shot audio work): `gemini-2.5-flash-preview-tts`, `gemini-2.5-pro-preview-tts`, `gemini-3.1-flash-tts-preview`.
+
+**New dependency**
+- `@google/genai` v1.50.1 (new SDK — has Live API). The existing `@google/generative-ai` stays because the REST calls in `src/lib/gemini.js` still use it. Do not remove either yet.
+
+**New files**
+- `src/lib/liveCoach.js` — `createLiveCoach({ analysis, workText, onStateChange })` returns `{ start, stop, setMuted, setPaused, getAnalysers }`.
+  - Opens a single shared `AudioContext` at 24 kHz (Gemini output rate).
+  - Registers an inline `AudioWorklet` (processor source is a template string → blob URL) that downsamples the mic to 16 kHz mono PCM in ~100 ms frames and sends them via `session.sendRealtimeInput({ audio: { data, mimeType: 'audio/pcm;rate=16000' } })`.
+  - Playback: base64 PCM chunks are decoded to `Float32Array`, stuffed into `AudioBuffer`s, and scheduled back-to-back against a running `nextPlaybackTime` cursor so there are no gaps between chunks.
+  - Two `AnalyserNode`s are exposed via `getAnalysers()` — one tapped off the playback gain node (the coach), one off the mic source (the student).
+  - System instruction is built from the existing `analysis` object (title, difficulty, objectives, key_concepts, suggested_approach, things_to_research) plus the student's current `workText`. Hard rules forbid revealing/confirming answers, grading, or giving specific numeric results. See `buildSystemInstruction()` for the exact text — don't weaken it.
+  - Voice: `Aoede` (prebuilt). Swap via `speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName`.
+- `src/components/lock/VoiceCoach.jsx` — the UI.
+  - Launch pill (top-right of lock-meta bar) that reads `VOICE TUTOR` when idle, `END COACH` when live. Pulsing ring + amber palette when active.
+  - Popover panel (dialog) contains: kicker, close X, canvas visualizer, status line, 3-button grid (MUTE / PAUSE / END), and a footnote reminding the student it will not give answers.
+  - `Visualizer` component draws a dual bar meter on a single canvas — left half = student (seafoam `#90e0ef`), right half = coach (sand `#e9c46a`). Whichever side is active is bright; the idle side dims to ~35% and has a slow sine baseline so it still breathes. DPR-aware, `ResizeObserver` handles layout changes.
+  - `StatusLine` swaps label + colored dot based on state: `Your turn — just talk`, `Coach is speaking`, `Paused`, `Mic muted`, `Surfacing your coach…`, or the error message.
+- `src/styles/voice-coach.css` — all `.vc-*` classes. Follows the existing deep-sea palette (`--seafoam`, `--sand`, deep navy glass panel with backdrop-filter blur).
+
+**LockScreen integration**
+- `src/components/lock/LockScreen.jsx`
+  - Imports `VoiceCoach` + `voice-coach.css`.
+  - New `workTextRef` (a plain `useRef` mirroring `workText` via `useEffect`) so the coach can read the latest draft at session start without re-rendering the panel every keystroke.
+  - `<VoiceCoach analysis={analysis} workTextRef={workTextRef} />` is mounted as the last child inside `.lock-meta` (top-right of the lock screen), intentionally near the existing meta items so the amber pill is easy to see.
+  - Added `.vc-launch`, `.vc-btn`, `.vc-close` to `LOCK_HOVER_SELECTORS`.
+
+**Security caveat (still unresolved — see §17.4)**
+- The Live session currently opens with the raw `VITE_GEMINI_API_KEY` from the browser. The existing REST calls in `src/lib/gemini.js` do the same. Fine for a hackathon demo, **unsafe for production**. Plan in §17.4.
+
+**Future-agent rules for the voice coach**
+1. Never weaken the system instruction. The "no answers, no grading, no specific values" rules are the product, not a suggestion.
+2. Don't switch to a non-native-audio Live model without re-running the probe — most Live model names are not accessible on this key.
+3. If you add new `.vc-*` interactive elements, also add their selectors to `LOCK_HOVER_SELECTORS` so the custom cursor stays consistent.
+4. Keep the visualizer on a single canvas. A DOM-per-bar implementation tanks performance on low-end laptops during a hackathon demo.
+
+### 17.3 Turtle image — status note
+
+Investigation only — no code changed.
+
+- `public/assets/turtle.png` is byte-identical (MD5 `80e7cd1dffb4ef2a12c622d4b0839798`) to `nanobanana-output/single_sea_turtle_swimming_grace.png`. The new turtle is already wired into `SummaryDashboard.jsx` at `src/components/dashboard/SummaryDashboard.jsx:130`.
+- A previous background task attempted to generate a transparent-background version via the `nano-banana` MCP edit tool. It failed with persistent timeouts. The dashboard uses an SVG `feColorMatrix` luma filter (`#turtleLuma` in `src/styles/dashboard.css`) to knock out the white studio backdrop at render time, so the raw PNG is fine as-is.
+- If a transparent-PNG version is ever added, drop it at `public/assets/turtle.png` and you can delete the luma filter from `.surf-creature`.
+
+### 17.4 API key security — plan of record
+
+Status: **implemented on 2026-04-19.** Gemini text calls now go through `api/gemini.js`, Gemini Live uses ephemeral tokens from `api/live-token.js`, and the browser no longer reads `VITE_GEMINI_API_KEY`.
+
+**Immediate hardening (5 min, Google Cloud Console)**
+- Credentials → open the Gemini key:
+  - Application restriction → HTTP referrers → allowlist prod domain + `http://localhost:3000/*`. (Does NOT apply to Live WebSocket — see below.)
+  - API restriction → restrict to `Generative Language API` only.
+  - Set a daily quota cap as a damage ceiling.
+
+**Proper fix on Vercel**
+- Move REST calls behind a serverless function:
+  - Create `api/gemini.js` at repo root. Uses `process.env.GEMINI_API_KEY` (no `VITE_` prefix, server-only).
+  - Rewrite `src/lib/gemini.js` → `fetch('/api/gemini', { method: 'POST', body: JSON.stringify({ kind, parts, submissionParts }) })`.
+- Live API needs **ephemeral tokens** (referrer restrictions don't cover WebSockets):
+  - New `api/live-token.js` that calls `ai.authTokens.create({ config: { uses: 1, expireTime, newSessionExpireTime, httpOptions: { apiVersion: 'v1alpha' } } })` and returns the token name.
+  - In `src/lib/liveCoach.js`, before `ai.live.connect(...)`, fetch the token and construct `new GoogleGenAI({ apiKey: token, httpOptions: { apiVersion: 'v1alpha' } })`.
+- Delete `VITE_GEMINI_API_KEY` from `.env.local` and from Vercel env vars. Add `GEMINI_API_KEY` (no prefix) server-side.
+- Add rate-limiting (e.g. Upstash Ratelimit by IP) on both `/api/gemini` and `/api/live-token`.
+
+**Do not**
+- Do not deploy to Vercel with `VITE_GEMINI_API_KEY` set and call it "secure". Vite inlines every `VITE_*` var into `dist/assets/index-*.js`. Ctrl+F for the first 6 chars of the key in the deployed bundle — it's right there.
+- Do not commit any `.env*` except `.env.example`. If a key ever slips in, rotate — `git filter-repo` is not a substitute.
+
+### 17.5 Files touched this session (quick index)
+
+New:
+- `src/lib/liveCoach.js`
+- `src/components/lock/VoiceCoach.jsx`
+- `src/styles/voice-coach.css`
+
+Modified:
+- `src/components/lock/LockScreen.jsx` (Skip button, VoiceCoach mount, workTextRef, cursor selectors)
+- `src/styles/lock.css` (`.work-actions`, `.skip-btn`)
+- `package.json` / `package-lock.json` (added `@google/genai` ^1.50.1)
+
+Verified via `npm run build` — passes.
