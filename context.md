@@ -146,7 +146,7 @@ deep-dive/
 │   ├── lib/
 │   │   ├── supabase.js         # Supabase client init
 │   │   ├── gemini.js           # Gemini Flash API calls
-│   │   └── geminiLive.js       # Gemini Live (voice) connection
+│   │   └── liveCoach.js        # Gemini Live (voice) connection
 │   ├── context/
 │   │   └── SessionContext.jsx  # Global session state
 │   └── styles/
@@ -165,16 +165,18 @@ All keys go in `.env.local`. Never hardcode them. Never commit `.env.local`.
 ```env
 VITE_SUPABASE_URL=your_supabase_project_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-VITE_GEMINI_API_KEY=your_gemini_api_key
+GEMINI_API_KEY=your_gemini_api_key
 ```
 
 Access in code:
 ```js
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const geminiKey   = import.meta.env.VITE_GEMINI_API_KEY
+// Gemini root key is server-only. The browser calls local API routes instead.
+await fetch('/api/gemini', { method: 'POST', body: JSON.stringify(payload) })
+await fetch('/api/live-token', { method: 'POST' })
 ```
 
-> ⚠️ For production/demo, move Gemini calls behind a Vercel serverless function (`/api/gemini.js`) so the API key is never exposed in the browser bundle. For hackathon dev, `VITE_` prefix is acceptable.
+> Gemini is already routed through server handlers. Do not add `VITE_GEMINI_API_KEY` back to the browser build.
 
 ---
 
@@ -258,91 +260,82 @@ await supabase
 
 We use **two different Gemini products** for two different jobs. Never mix them up.
 
-### 7a. Gemini Flash — Text Tasks (`src/lib/gemini.js`)
+### 7a. Gemini Flash — Text Tasks (`src/lib/gemini.js`, `api/gemini.js`, `api/_gemini.js`)
 
 Used for:
-1. **Assignment summarization** at session start (gives Coral context)
-2. **Submission verification** at session end (generates the JSON report)
+1. **Assignment analysis** at session start (gives the app structured context)
+2. **Submission verification** at session end (generates the structured JSON report)
 
-```js
-import { GoogleGenerativeAI } from '@google/generative-ai'
+Current architecture:
+- The browser never calls Gemini directly for text tasks.
+- `src/lib/gemini.js` posts JSON to `/api/gemini`.
+- `api/gemini.js` delegates to `api/_gemini.js`.
+- `api/_gemini.js` uses the server-only `GEMINI_API_KEY`.
+- `src/lib/gemini.js` owns the browser-side fallback objects so the UI still works if the API call fails.
 
-const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY)
-const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+Rules:
+- Keep Gemini parsing and fallback handling in `src/lib/gemini.js`.
+- Keep the root key server-only.
+- If the verification response shape changes, update both the prompt and the fallback report.
 
-// 1. Summarize assignment for Coral's context
-export async function summarizeAssignment(assignmentText) {
-  const prompt = `Summarize this homework assignment in 2-3 sentences so a study coach understands what the student needs to do:\n\n${assignmentText}`
-  const result = await model.generateContent(prompt)
-  return result.response.text()
-}
+### 7b. Gemini Live API — Voice Buddy (`src/lib/liveCoach.js`, `src/components/lock/VoiceCoach.jsx`)
 
-// 2. Verify submission and generate report
-export async function verifySubmission(assignment, submission) {
-  const prompt = `
-You are an academic evaluator. Compare the assignment and the student's submission.
-Return ONLY valid JSON with no markdown, no backticks, no explanation. Just the JSON object.
+Used for Coral's real-time voice conversation during Phase 2.
 
-{
-  "assignment_summary": "string - what the assignment asked for",
-  "completion_status": "complete" | "partial" | "incomplete",
-  "performance_score": number between 0 and 100,
-  "strengths": ["string", "string"],
-  "areas_to_improve": ["string", "string"],
-  "encouragement": "string - one sentence of genuine encouragement"
-}
+Current model in use:
+- `gemini-2.5-flash-native-audio-preview-12-2025`
 
-Assignment:
-${assignment}
-
-Student Submission:
-${submission}
-`
-  const result = await model.generateContent(prompt)
-  const raw = result.response.text()
-  return JSON.parse(raw.replace(/```json|```/g, '').trim())
-}
+Current auth flow:
+```
+Browser -> POST /api/live-token
+        -> server mints ephemeral token
+        -> browser opens Gemini Live session with token only
 ```
 
-> ⚠️ Always wrap `JSON.parse` in try/catch. Gemini occasionally returns malformed JSON. Fall back to a default report object if parsing fails.
-
-### 7b. Gemini Live API — Voice Buddy (`src/lib/geminiLive.js`)
-
-Used for real-time voice conversation with Coral during Phase 2.
-
-The system prompt for Coral must always include:
-1. The assignment summary (from the Flash summarization call)
-2. The persona rules below
-
-**Coral's System Prompt:**
+Current voice pipeline:
 ```
-You are Coral, a calm and encouraging AI study buddy helping a student complete their homework.
-The student is locked in a focus session until they finish. Your job is to:
-- Help them THINK through problems by asking guiding questions
-- Explain concepts they don't understand in simple terms
-- NEVER give direct answers or write their work for them
-- Keep them calm if they get frustrated
-- Celebrate small wins and keep energy positive
-- Be concise — students are working, not chatting
-
-The assignment they are working on:
-[INSERT ASSIGNMENT SUMMARY HERE]
+Browser mic
+  -> MediaStream + AudioWorklet downsample to 16 kHz mono PCM
+  -> sendRealtimeInput({ audio: { data, mimeType: 'audio/pcm;rate=16000' } })
+  -> Gemini Live model
+  -> 24 kHz PCM audio chunks back from Gemini
+  -> AudioBuffer scheduling in Web Audio
+  -> speaker playback
 ```
 
-**Voice pipeline:**
-```
-Browser mic → MediaRecorder API → Gemini Live API (audio in)
-                                        ↓
-                              Gemini Live API (audio out)
-                                        ↓
-                              Web Audio API → speaker playback
-```
+Current turn-taking behavior:
+- Coral auto-mutes the mic while she is speaking so playback does not cut her off.
+- The client sends `audioStreamEnd` when the user goes silent, pauses, mutes, or Coral takes the floor.
+- The UI distinguishes:
+  - `connecting`
+  - `listening`
+  - `thinking`
+  - `speaking`
+  - `error`
+  - `closed`
+- `userSpeaking` is tracked separately from the coarse session status so the widget can reflect real mic activity.
 
-**Coral panel state machine:**
-```
-idle → listening → thinking → speaking → idle
-```
-Each state has a distinct waveform animation. `idle` = slow pulse, `listening` = reactive bars, `thinking` = spinning ring, `speaking` = active waveform.
+Current UI behavior:
+- `Talk With Coral` starts the live session.
+- `End Coral` closes it.
+- Left half of the visualizer reflects the user mic.
+- Right half reflects Coral playback.
+- The visualizer is canvas-based and should stay canvas-based.
+- Status text should feel conversational: Coral listening, thinking, speaking.
+
+Coral prompt rules that must not be weakened:
+- Never give direct answers, numeric results, or solution confirmation.
+- Never grade the student's work.
+- Ask reflective follow-up questions.
+- Use the assignment analysis plus the student's current draft as context.
+- Sound like a warm study buddy, not a robotic assistant.
+- Help the student choose one next step when they feel stuck.
+
+Implementation notes:
+- `src/lib/liveCoach.js` is the source of truth for the live session lifecycle.
+- `src/components/lock/VoiceCoach.jsx` is the source of truth for the button copy, status copy, and wave visualization.
+- `src/styles/voice-coach.css` owns the Coral widget look and motion.
+- If you change `.vc-*` interactive elements, also update `LOCK_HOVER_SELECTORS` in `LockScreen.jsx`.
 
 ---
 
@@ -721,7 +714,7 @@ If you're working on your assigned component, do not touch files outside your wo
 |---|---|
 | `src/components/setup/` | Person 1 |
 | `src/components/lock/` | Person 1 + Person 2 |
-| `src/lib/geminiLive.js` + `src/hooks/useCoral.js` | Person 2 |
+| `src/lib/liveCoach.js` + `src/components/lock/VoiceCoach.jsx` | Person 2 |
 | `src/components/dashboard/` + `src/lib/gemini.js` | Person 3 |
 | `src/lib/supabase.js` + `src/hooks/useSession.js` | Person 3 |
 | `src/context/SessionContext.jsx` | All — coordinate before editing |
@@ -796,52 +789,62 @@ This section captures everything changed in the most recent working session, so 
 
 ### 17.2 Voice Tutor — Gemini Live API (Path B)
 
-**Goal:** a live, bidirectional voice coach the student can activate at any point during the session. Speaks aloud, listens back, never reveals answers. Visualizes both sides of the conversation. Uses the assignment analysis the app already computed.
+**Goal:** a conversational study-buddy voice mode that feels natural in the browser, reflects both speakers visually, and stays secure by using ephemeral tokens instead of exposing the root Gemini key.
 
-**API probe results (keep this — it answers "which model?")**
-The current `VITE_GEMINI_API_KEY` has Live API access. Models the key can use for `bidiGenerateContent`:
-- `gemini-2.5-flash-native-audio-latest` ← **in use**
-- `gemini-2.5-flash-native-audio-preview-09-2025`
-- `gemini-2.5-flash-native-audio-preview-12-2025`
-- `gemini-3.1-flash-live-preview`
+**Final implementation**
+- Auth:
+  - Browser calls `/api/live-token`
+  - Server mints a short-lived ephemeral token in `api/_gemini.js`
+  - Browser opens the Live session with that token only
+- Model:
+  - `gemini-2.5-flash-native-audio-preview-12-2025`
+- Client files:
+  - `src/lib/liveCoach.js`
+  - `src/components/lock/VoiceCoach.jsx`
+  - `src/styles/voice-coach.css`
 
-The older published model names (`gemini-2.5-flash-live-preview`, `gemini-2.0-flash-live-001`, `gemini-live-2.5-flash-preview`) return "model not found" on this key. Do **not** pick those by default.
+**What `liveCoach.js` does now**
+- Uses a shared `AudioContext` for playback and mic analysis.
+- Registers an inline `AudioWorklet` to downsample the browser mic to 16 kHz mono PCM.
+- Sends realtime audio chunks with `sendRealtimeInput({ audio: { data, mimeType } })`.
+- Tracks RMS energy on each mic frame to decide whether the student is actively speaking.
+- Flushes `audioStreamEnd` when speech pauses long enough, when the student mutes, when Coral takes the floor, or when the session is paused/stopped.
+- Decodes Gemini audio chunks into `AudioBuffer`s and schedules them back-to-back to avoid stutter between chunks.
+- Auto-mutes the mic while Coral is speaking so the playback does not interrupt itself.
+- Exposes mic and playback analysers so the widget can animate on actual audio energy, not just rough state flags.
 
-TTS-capable models available on this key (for future single-shot audio work): `gemini-2.5-flash-preview-tts`, `gemini-2.5-pro-preview-tts`, `gemini-3.1-flash-tts-preview`.
+**What `VoiceCoach.jsx` does now**
+- Launch button copy is `Talk With Coral` / `End Coral`.
+- The panel status line explicitly reflects:
+  - bringing Coral online
+  - Coral listening
+  - Coral thinking
+  - Coral speaking
+  - muted / paused / error / offline
+- The visualizer is a dual-sided canvas:
+  - left = user mic energy
+  - right = Coral playback energy
+- The visualizer uses both frequency data and time-domain RMS so it still moves when either side is speaking softly.
 
-**New dependency**
-- `@google/genai` v1.50.1 (new SDK — has Live API). The existing `@google/generative-ai` stays because the REST calls in `src/lib/gemini.js` still use it. Do not remove either yet.
+**Current prompt/persona behavior**
+- Coral is a warm, patient study buddy.
+- She should sound natural and conversational, not robotic.
+- She should respond to what the student just said, then gently move them forward.
+- She must not reveal answers, confirm correctness, grade work, or provide direct numeric solutions.
+- She should help break the task into the next step when the student is stuck or overwhelmed.
 
-**New files**
-- `src/lib/liveCoach.js` — `createLiveCoach({ analysis, workText, onStateChange })` returns `{ start, stop, setMuted, setPaused, getAnalysers }`.
-  - Opens a single shared `AudioContext` at 24 kHz (Gemini output rate).
-  - Registers an inline `AudioWorklet` (processor source is a template string → blob URL) that downsamples the mic to 16 kHz mono PCM in ~100 ms frames and sends them via `session.sendRealtimeInput({ audio: { data, mimeType: 'audio/pcm;rate=16000' } })`.
-  - Playback: base64 PCM chunks are decoded to `Float32Array`, stuffed into `AudioBuffer`s, and scheduled back-to-back against a running `nextPlaybackTime` cursor so there are no gaps between chunks.
-  - Two `AnalyserNode`s are exposed via `getAnalysers()` — one tapped off the playback gain node (the coach), one off the mic source (the student).
-  - System instruction is built from the existing `analysis` object (title, difficulty, objectives, key_concepts, suggested_approach, things_to_research) plus the student's current `workText`. Hard rules forbid revealing/confirming answers, grading, or giving specific numeric results. See `buildSystemInstruction()` for the exact text — don't weaken it.
-  - Voice: `Aoede` (prebuilt). Swap via `speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName`.
-- `src/components/lock/VoiceCoach.jsx` — the UI.
-  - Launch pill (top-right of lock-meta bar) that reads `VOICE TUTOR` when idle, `END COACH` when live. Pulsing ring + amber palette when active.
-  - Popover panel (dialog) contains: kicker, close X, canvas visualizer, status line, 3-button grid (MUTE / PAUSE / END), and a footnote reminding the student it will not give answers.
-  - `Visualizer` component draws a dual bar meter on a single canvas — left half = student (seafoam `#90e0ef`), right half = coach (sand `#e9c46a`). Whichever side is active is bright; the idle side dims to ~35% and has a slow sine baseline so it still breathes. DPR-aware, `ResizeObserver` handles layout changes.
-  - `StatusLine` swaps label + colored dot based on state: `Your turn — just talk`, `Coach is speaking`, `Paused`, `Mic muted`, `Surfacing your coach…`, or the error message.
-- `src/styles/voice-coach.css` — all `.vc-*` classes. Follows the existing deep-sea palette (`--seafoam`, `--sand`, deep navy glass panel with backdrop-filter blur).
+**Files that must stay in sync**
+- `src/lib/liveCoach.js`
+- `src/components/lock/VoiceCoach.jsx`
+- `src/styles/voice-coach.css`
+- `src/components/lock/LockScreen.jsx` for mount point and custom cursor selectors
 
-**LockScreen integration**
-- `src/components/lock/LockScreen.jsx`
-  - Imports `VoiceCoach` + `voice-coach.css`.
-  - New `workTextRef` (a plain `useRef` mirroring `workText` via `useEffect`) so the coach can read the latest draft at session start without re-rendering the panel every keystroke.
-  - `<VoiceCoach analysis={analysis} workTextRef={workTextRef} />` is mounted as the last child inside `.lock-meta` (top-right of the lock screen), intentionally near the existing meta items so the amber pill is easy to see.
-  - Added `.vc-launch`, `.vc-btn`, `.vc-close` to `LOCK_HOVER_SELECTORS`.
-
-**Security caveat (still unresolved — see §17.4)**
-- The Live session currently opens with the raw `VITE_GEMINI_API_KEY` from the browser. The existing REST calls in `src/lib/gemini.js` do the same. Fine for a hackathon demo, **unsafe for production**. Plan in §17.4.
-
-**Future-agent rules for the voice coach**
-1. Never weaken the system instruction. The "no answers, no grading, no specific values" rules are the product, not a suggestion.
-2. Don't switch to a non-native-audio Live model without re-running the probe — most Live model names are not accessible on this key.
-3. If you add new `.vc-*` interactive elements, also add their selectors to `LOCK_HOVER_SELECTORS` so the custom cursor stays consistent.
-4. Keep the visualizer on a single canvas. A DOM-per-bar implementation tanks performance on low-end laptops during a hackathon demo.
+**Rules for future edits**
+1. Do not move Gemini Live auth back into the client with a root API key.
+2. Do not swap the live model casually; verify it supports native audio and the current token flow first.
+3. Keep the mic auto-mute while Coral is speaking.
+4. Keep the visualizer canvas-based and driven by live analyser data.
+5. Preserve the "study buddy, not answer bot" system instruction.
 
 ### 17.3 Turtle image — status note
 

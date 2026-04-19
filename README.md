@@ -64,7 +64,7 @@ Deep Dive is a three-phase focus ritual disguised as a deep-sea expedition.
 | Frontend | React 18 + Vite 6 |
 | Styling | Hand-rolled CSS (tokens + HUD chrome) |
 | Charts | Recharts (focus timeline) |
-| AI Voice | Gemini Live API (`gemini-3.1-flash-live-preview`) |
+| AI Voice | Gemini Live API (`gemini-2.5-flash-native-audio-preview-12-2025`) |
 | AI Text | Gemini Flash (`gemini-flash-latest`) |
 | Database | Supabase (Postgres + Row-Level Security) |
 | Image Assets | nano-banana (Gemini image extension) |
@@ -146,7 +146,7 @@ src/
 │       ├── MetricsRow.jsx         # 4 HUD tiles (duration / away / switches / focus)
 │       └── FocusTimeline.jsx      # stacked % bar + 30s Recharts buckets
 ├── hooks/              # useLockScreen, useSession, useEventTracker, useCoral
-├── lib/                # supabase.js, gemini.js, geminiLive.js
+├── lib/                # supabase.js, gemini.js, liveCoach.js
 ├── context/            # SessionContext — global session state
 └── styles/
     ├── ocean.css       # landing + lock screen — bubble/jellyfish ambiance

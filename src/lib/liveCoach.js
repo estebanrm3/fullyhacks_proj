@@ -1,11 +1,21 @@
-// Voice coach powered by Gemini Live API (native audio) via a short-lived
-// server-minted token. The browser never receives the root Gemini API key.
+// Voice coach powered by Gemini Live API via a short-lived server-minted
+// token. The browser never receives the root Gemini API key.
 
-import { GoogleGenAI, Modality } from '@google/genai'
+import {
+  ActivityHandling,
+  EndSensitivity,
+  GoogleGenAI,
+  Modality,
+  StartSensitivity,
+} from '@google/genai'
 
-const LIVE_MODEL = 'gemini-3.1-flash-live-preview'
+const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025'
 const OUTPUT_SAMPLE_RATE = 24000   // what Gemini sends
 const INPUT_SAMPLE_RATE = 16000    // what Gemini expects
+const MIC_FRAME_MS = 100
+const MIC_ACTIVE_RMS = 0.02
+const MIC_HANGOVER_MS = 350
+const MIC_IDLE_FLUSH_MS = 900
 
 // Turns the structured assignment analysis + current work into a system
 // instruction that keeps the coach from giving away answers.
@@ -13,16 +23,19 @@ function buildSystemInstruction(analysis, workText) {
   const a = analysis || {}
   const asList = (arr) => (arr && arr.length ? arr.join('; ') : '(not specified)')
 
-  return `You are a warm, patient study coach speaking aloud to a student through a voice interface. Keep each reply short -- one or two sentences -- so the conversation feels natural.
+  return `You are Coral, a warm, patient study buddy speaking aloud to a student through a voice interface. Sound like a real person, not a bot. Most replies should be 1 to 3 short sentences, and you should usually ask one gentle follow-up question so the exchange keeps moving.
 
 STRICT RULES:
 - Never reveal, state, hint at, or confirm any specific answer, numeric result, or solution.
 - Never grade their work or tell them whether something is right or wrong.
 - If they ask "is this correct?" -- decline kindly and redirect to process: "What makes you confident in that step?"
+- Do respond directly to what they just said before nudging them forward.
 - Do ask open, reflective questions about their reasoning.
 - Do point them toward concepts to review, definitions to re-read, or approaches to try.
 - Use process-oriented encouragement when they sound stuck.
-- Stay conversational -- no lectures, no long explanations.
+- Stay conversational -- no lectures, no long explanations, no robotic phrasing.
+- If they sound frustrated or overwhelmed, calm things down and help them choose one next step.
+- Refer to yourself as Coral only if the student asks who you are.
 
 Context for THIS session (you already know this -- do not read it back verbatim):
 ASSIGNMENT TITLE: ${a.title || 'Unknown'}
@@ -37,7 +50,7 @@ The student's current draft so far (may be empty or in-progress):
 ${workText?.trim() || '(nothing written yet)'}
 >>>
 
-Open with a brief, friendly greeting (one short sentence) and ask what part of the assignment they want to think through together.`
+If the student sounds unsure, help them break the task into one next step. If they share an idea, help them test it with reasoning questions instead of evaluating it for them.`
 }
 
 // base64 -> Float32 PCM in [-1, 1]
@@ -53,7 +66,7 @@ function base64ToFloat32(b64) {
   return out
 }
 
-// Float32 mic PCM -> base64 of 16-bit little-endian PCM
+// Float32 mic PCM -> base64 16-bit little-endian PCM for Gemini Live input.
 function float32ToBase64Pcm(f32) {
   const buf = new ArrayBuffer(f32.length * 2)
   const view = new DataView(buf)
@@ -63,8 +76,17 @@ function float32ToBase64Pcm(f32) {
   }
   const bytes = new Uint8Array(buf)
   let bin = ''
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
   return btoa(bin)
+}
+
+function getFrameRms(f32) {
+  let sum = 0
+  for (let i = 0; i < f32.length; i++) sum += f32[i] * f32[i]
+  return Math.sqrt(sum / (f32.length || 1))
 }
 
 // Tiny AudioWorklet processor: downsamples mic audio to 16kHz mono and
@@ -123,6 +145,7 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
     muted: false,
     autoMuted: false,
     paused: false,
+    userSpeaking: false,
     error: null,
   }
   const emit = () => onStateChange?.({ ...state })
@@ -130,6 +153,7 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
   let session = null
   let playbackGain = null
   let playbackAnalyser = null
+  let micMonitorGain = null
   let playbackSources = new Set()
   let nextPlaybackTime = 0
   let micStream = null
@@ -137,6 +161,9 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
   let micWorkletNode = null
   let micAnalyser = null
   let mediaStreamForMute = null
+  let micSpeechHoldMs = 0
+  let micSilentMs = 0
+  let streamEnded = false
 
   function syncMicState() {
     if (!mediaStreamForMute) return
@@ -146,9 +173,40 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
     })
   }
 
+  function setUserSpeaking(speaking) {
+    if (state.userSpeaking === speaking) return
+    state.userSpeaking = speaking
+    emit()
+  }
+
+  function resetMicActivity() {
+    micSpeechHoldMs = 0
+    micSilentMs = 0
+    setUserSpeaking(false)
+  }
+
+  function markStreamActive() {
+    streamEnded = false
+  }
+
+  function flushAudioStream() {
+    if (!session || streamEnded) return
+    try {
+      session.sendRealtimeInput({ audioStreamEnd: true })
+      streamEnded = true
+    } catch (error) {
+      console.error('[liveCoach] audioStreamEnd failed:', error)
+    }
+  }
+
   function setStatus(s) {
+    const wasAutoMuted = state.autoMuted
     state.status = s
     state.autoMuted = s === 'speaking'
+    if (!wasAutoMuted && state.autoMuted) {
+      flushAudioStream()
+      resetMicActivity()
+    }
     syncMicState()
     emit()
   }
@@ -163,6 +221,12 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
     playbackAnalyser.fftSize = 256
     playbackGain.connect(playbackAnalyser)
     playbackGain.connect(audioCtx.destination)
+
+    // Keep the mic graph "live" for analysis/worklet processing without
+    // feeding the user's microphone back through the speakers.
+    micMonitorGain = audioCtx.createGain()
+    micMonitorGain.gain.value = 0
+    micMonitorGain.connect(audioCtx.destination)
 
     // Register the mic worklet (URL.createObjectURL trick so we don't need a separate file)
     const blob = new Blob([MIC_WORKLET_SRC], { type: 'application/javascript' })
@@ -224,21 +288,52 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
     micAnalyser = audioCtx.createAnalyser()
     micAnalyser.fftSize = 256
     micSource.connect(micAnalyser)
+    micAnalyser.connect(micMonitorGain)
 
     micWorkletNode = new AudioWorkletNode(audioCtx, 'mic-downsampler')
     micWorkletNode.port.onmessage = (e) => {
-      if (state.muted || state.autoMuted || state.paused || !session) return
+      if (state.muted || state.autoMuted || state.paused || !session) {
+        flushAudioStream()
+        resetMicActivity()
+        return
+      }
+
+      const rms = getFrameRms(e.data)
+      if (rms >= MIC_ACTIVE_RMS) {
+        micSpeechHoldMs = MIC_HANGOVER_MS
+        micSilentMs = 0
+      } else {
+        micSpeechHoldMs = Math.max(0, micSpeechHoldMs - MIC_FRAME_MS)
+        micSilentMs += MIC_FRAME_MS
+      }
+
+      const userSpeaking = rms >= MIC_ACTIVE_RMS || micSpeechHoldMs > 0
+      setUserSpeaking(userSpeaking)
+
+      if (micSilentMs >= MIC_IDLE_FLUSH_MS && !userSpeaking) {
+        flushAudioStream()
+        return
+      }
+
       const data = float32ToBase64Pcm(e.data)
       try {
         session.sendRealtimeInput({
-          audio: { data, mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}` },
+          audio: {
+            data,
+            mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}`,
+          },
         })
-      } catch {}
+        markStreamActive()
+      } catch (error) {
+        console.error('[liveCoach] sendRealtimeInput failed:', error)
+      }
     }
     micSource.connect(micWorkletNode)
+    micWorkletNode.connect(micMonitorGain)
   }
 
   function stopMic() {
+    flushAudioStream()
     try { micWorkletNode?.disconnect() } catch {}
     try { micSource?.disconnect() } catch {}
     try { micStream?.getTracks().forEach(t => t.stop()) } catch {}
@@ -247,6 +342,7 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
     micStream = null
     mediaStreamForMute = null
     micAnalyser = null
+    resetMicActivity()
   }
 
   async function start() {
@@ -276,6 +372,19 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
         model: LIVE_MODEL,
         config: {
           responseModalities: [Modality.AUDIO],
+          enableAffectiveDialog: true,
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
+          realtimeInputConfig: {
+            activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
+            automaticActivityDetection: {
+              disabled: false,
+              startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+              endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+              prefixPaddingMs: 80,
+              silenceDurationMs: 350,
+            },
+          },
           systemInstruction: { parts: [{ text: buildSystemInstruction(analysis, workText) }] },
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Aoede' } },
@@ -287,21 +396,41 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
             // Interruption -- agent stopped mid-sentence because user spoke
             if (msg?.serverContent?.interrupted) {
               stopPlayback()
+              resetMicActivity()
               setStatus('listening')
             }
+
+            if (msg?.serverContent?.inputTranscription?.finished && state.status !== 'speaking') {
+              setUserSpeaking(false)
+              setStatus('thinking')
+            } else if (msg?.serverContent?.waitingForInput && state.status !== 'speaking') {
+              setStatus('listening')
+            }
+
             const parts = msg?.serverContent?.modelTurn?.parts ?? []
             for (const p of parts) {
               if (p.inlineData?.data) playAudioChunk(p.inlineData.data)
             }
-            if (msg?.serverContent?.turnComplete && state.status === 'speaking') {
-              // Actual status flip happens in onended; this is just a hint
+
+            if (msg?.serverContent?.generationComplete && state.status !== 'speaking') {
+              setStatus('listening')
+            }
+
+            if (
+              msg?.serverContent?.turnComplete &&
+              playbackSources.size === 0 &&
+              state.status !== 'speaking'
+            ) {
+              setStatus('listening')
             }
           },
           onerror: (e) => {
+            resetMicActivity()
             state.error = e?.message || 'Live API error'
             setStatus('error')
           },
           onclose: () => {
+            resetMicActivity()
             if (state.status !== 'error') setStatus('closed')
           },
         },
@@ -318,6 +447,10 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
 
   function setMuted(m) {
     state.muted = m
+    if (m) {
+      flushAudioStream()
+      resetMicActivity()
+    }
     syncMicState()
     emit()
   }
@@ -325,6 +458,10 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
   function setPaused(p) {
     state.paused = p
     if (playbackGain) playbackGain.gain.value = p ? 0 : 1
+    if (p) {
+      flushAudioStream()
+      resetMicActivity()
+    }
     syncMicState()
     emit()
   }
@@ -337,8 +474,10 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
     stopMic()
     try { playbackGain?.disconnect() } catch {}
     try { playbackAnalyser?.disconnect() } catch {}
+    try { micMonitorGain?.disconnect() } catch {}
     playbackGain = null
     playbackAnalyser = null
+    micMonitorGain = null
     nextPlaybackTime = 0
     if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null }
     if (state.status !== 'error') setStatus('closed')

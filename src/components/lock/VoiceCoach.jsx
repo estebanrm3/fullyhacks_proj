@@ -32,22 +32,36 @@ function Visualizer({ analysers, coachState }) {
         const bars = 22
         const gap = 3 * dpr
         const slot = (xEnd - xStart) / bars
-        let buf
+        let freqBuf
+        let timeBuf
+        let rms = 0
         if (analyser) {
-          buf = new Uint8Array(analyser.frequencyBinCount)
-          analyser.getByteFrequencyData(buf)
+          freqBuf = new Uint8Array(analyser.frequencyBinCount)
+          timeBuf = new Uint8Array(analyser.fftSize)
+          analyser.getByteFrequencyData(freqBuf)
+          analyser.getByteTimeDomainData(timeBuf)
+
+          let sum = 0
+          for (let i = 0; i < timeBuf.length; i++) {
+            const centered = (timeBuf[i] - 128) / 128
+            sum += centered * centered
+          }
+          rms = Math.sqrt(sum / timeBuf.length)
         }
+
+        const visiblyActive = active || rms > 0.03
+
         for (let i = 0; i < bars; i++) {
-          const idx = Math.floor((i / bars) * (buf?.length ?? 0))
-          const v = buf ? buf[idx] / 255 : 0
+          const idx = Math.floor((i / bars) * (freqBuf?.length ?? 0))
+          const v = freqBuf ? freqBuf[idx] / 255 : 0
           // Baseline pulse so idle side still breathes a bit.
-          const baseline = active ? 0.08 + 0.05 * Math.sin(Date.now() / 280 + i * 0.5) : 0.04
-          const amp = Math.max(baseline, v)
+          const baseline = visiblyActive ? 0.08 + 0.05 * Math.sin(Date.now() / 280 + i * 0.5) : 0.04
+          const amp = Math.max(baseline, v * 0.9 + rms * 1.6)
           const barH = Math.max(2 * dpr, amp * h * 0.85)
           const x = xStart + i * slot + gap / 2
           const y = (h - barH) / 2
           ctx.fillStyle = color
-          ctx.globalAlpha = active ? 0.9 : 0.35
+          ctx.globalAlpha = visiblyActive ? 0.9 : 0.35
           ctx.fillRect(x, y, slot - gap, barH)
         }
         ctx.globalAlpha = 1
@@ -55,7 +69,9 @@ function Visualizer({ analysers, coachState }) {
 
       const mid = w / 2
       const userActive =
-        coachState.status === 'listening' &&
+        (coachState.status === 'listening' ||
+          coachState.status === 'thinking' ||
+          coachState.userSpeaking) &&
         !coachState.muted &&
         !coachState.autoMuted &&
         !coachState.paused
@@ -99,9 +115,15 @@ function StatusLine({ state }) {
   } else if (state.paused) {
     label = 'Paused'
     dot = 'paused'
+  } else if (state.status === 'thinking') {
+    label = 'Coral is thinking...'
+    dot = 'thinking'
   } else if (state.status === 'speaking') {
     label = 'Coral is speaking - mic muted automatically'
     dot = 'coach'
+  } else if (state.userSpeaking) {
+    label = 'Coral is listening...'
+    dot = 'you'
   } else if (state.status === 'listening') {
     label = state.muted ? 'Mic muted - tap to unmute' : 'Your turn - just talk'
     dot = state.muted ? 'muted' : 'you'
@@ -122,13 +144,19 @@ export default function VoiceCoach({ analysis, workTextRef }) {
     muted: false,
     autoMuted: false,
     paused: false,
+    userSpeaking: false,
     error: null,
   })
   const coachRef = useRef(null)
 
   // Always hand the coach the freshest workText and analysis at start time.
   const handleToggle = async () => {
-    if (state.status === 'speaking' || state.status === 'listening' || state.status === 'connecting') {
+    if (
+      state.status === 'speaking' ||
+      state.status === 'thinking' ||
+      state.status === 'listening' ||
+      state.status === 'connecting'
+    ) {
       coachRef.current?.stop()
       coachRef.current = null
       return
@@ -146,6 +174,7 @@ export default function VoiceCoach({ analysis, workTextRef }) {
 
   const active =
     state.status === 'listening' ||
+    state.status === 'thinking' ||
     state.status === 'speaking' ||
     state.status === 'connecting'
 
@@ -177,7 +206,7 @@ export default function VoiceCoach({ analysis, workTextRef }) {
           <path d="M12 18v3" />
         </svg>
         <span className="vc-launch-label">
-          {active ? 'END CORAL' : 'TALK WITH CORAL'}
+          {active ? 'End Coral' : 'Talk With Coral'}
         </span>
       </button>
 
@@ -230,12 +259,12 @@ export default function VoiceCoach({ analysis, workTextRef }) {
               }}
               disabled={!active}
             >
-              END CORAL
+              End Coral
             </button>
           </div>
 
           <div className="vc-footnote">
-            Your coach knows the assignment and your draft - but it will never give you the answer.
+            Coral knows the assignment and your draft, but it will coach your thinking instead of doing the work for you.
           </div>
         </div>
       )}

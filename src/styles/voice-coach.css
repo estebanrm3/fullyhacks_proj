@@ -161,6 +161,7 @@
 }
 .vc-status-dot.you       { background: #90e0ef; box-shadow: 0 0 10px #90e0ef; animation: vcBlink 1s ease-in-out infinite; }
 .vc-status-dot.coach     { background: #e9c46a; box-shadow: 0 0 10px #e9c46a; animation: vcBlink 0.6s ease-in-out infinite; }
+.vc-status-dot.thinking  { background: #f4a261; box-shadow: 0 0 10px rgba(244, 162, 97, 0.7); animation: vcBlink 0.75s ease-in-out infinite; }
 .vc-status-dot.connecting{ background: #15b4b2; animation: vcBlink 0.8s ease-in-out infinite; }
 .vc-status-dot.muted     { background: #e76f51; }
 .vc-status-dot.paused    { background: #f4a261; }
