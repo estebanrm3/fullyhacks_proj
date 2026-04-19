@@ -1,0 +1,748 @@
+/* ============================================================
+   SUMMARY DASHBOARD — the "surfaced" view
+   Same visual DNA as setup.css / lock.css:
+     - Syne for display / headlines
+     - DM Sans for body + small caps HUD labels
+     - Fraunces for editorial italics
+     - Seafoam/teal HUD chrome, sand gold only on the primary CTA
+   The mood is lighter than the lock screen: light rays from above,
+   calmer particles, a decorative deep fish that followed you up.
+   ============================================================ */
+
+.surf-stage {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #031021;
+  color: var(--surface);
+  font-family: 'DM Sans', sans-serif;
+  z-index: 60;
+}
+
+/* Hide the OS cursor — the shared seafoam dot + ring takes over. */
+.surf-stage, .surf-stage * { cursor: none; }
+@media (max-width: 800px) { .surf-stage, .surf-stage * { cursor: auto; } }
+
+/* ---- Background photo (underwater looking up) ---- */
+.surf-backdrop {
+  position: fixed;
+  inset: -4vh -3vw;
+  width: calc(100% + 6vw);
+  height: calc(100% + 8vh);
+  background: url('/assets/surface-bg.png') center 30% / cover no-repeat;
+  z-index: 0;
+  transform: scale(1.04);
+  animation: surfDrift 36s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes surfDrift {
+  0%   { transform: scale(1.04) translate(0, 0); }
+  100% { transform: scale(1.09) translate(-8px, 4px); }
+}
+
+/* Dark gradient so the UI reads above the background */
+.surf-grade {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 35% at 50% 0%,
+      rgba(155,237,239,0.10) 0%,
+      transparent 60%),
+    linear-gradient(180deg,
+      rgba(3,16,33,0.25) 0%,
+      rgba(3,16,33,0.55) 45%,
+      rgba(2,8,20,0.85) 100%);
+}
+
+/* Soft light column near the top, echoing the sun breaking through */
+.surf-glow {
+  position: fixed;
+  top: -10vh; left: 30%;
+  width: 40vw; height: 55vh;
+  background: radial-gradient(ellipse at center, rgba(155,237,239,0.22), transparent 72%);
+  filter: blur(60px);
+  z-index: 2;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.surf-noise {
+  position: fixed; inset: -20px;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.55 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+
+/* ---- Floating decorative sea turtle (callback to the depths) ---- */
+.surf-creature {
+  position: fixed;
+  bottom: 6vh;
+  right: -4vw;
+  height: 42vh;
+  width: auto;
+  min-height: 300px;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0.22;
+  /* Luma filter strips the white studio backdrop; drop-shadows give it
+     the same bioluminescent halo the jellyfish has on the landing page. */
+  filter:
+    url(#turtleLuma)
+    drop-shadow(0 0 28px rgba(72,202,228,0.4))
+    drop-shadow(0 0 70px rgba(21,180,178,0.25))
+    saturate(1.15);
+  animation: surfFishFloat 11s ease-in-out infinite;
+  transform-origin: center;
+  will-change: transform;
+}
+@keyframes surfFishFloat {
+  0%, 100% { transform: translateY(0) rotate(-1.5deg); }
+  50%      { transform: translateY(-22px) rotate(1.5deg); }
+}
+
+.surf-creature-halo {
+  position: fixed;
+  bottom: 0;
+  right: -8vw;
+  width: 56vh; height: 56vh;
+  min-width: 420px; min-height: 420px;
+  background: radial-gradient(circle at 40% 40%,
+    rgba(72,202,228,0.18) 0%,
+    rgba(14,124,123,0.08) 35%,
+    transparent 70%);
+  filter: blur(40px);
+  z-index: 3;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+/* ---- Surface particles — lighter than lock, drifting upward gently ---- */
+.surf-particles { position: fixed; inset: 0; z-index: 4; pointer-events: none; }
+.surf-mote {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(155,237,239,0.6);
+  box-shadow: 0 0 6px rgba(155,237,239,0.55), 0 0 12px rgba(72,202,228,0.3);
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: surfMoteRise linear infinite;
+}
+@keyframes surfMoteRise {
+  0%   { transform: translate3d(0, 0, 0); opacity: 0; }
+  10%  { opacity: 0.55; }
+  85%  { opacity: 0.45; }
+  100% { transform: translate3d(var(--dx, 12px), -110vh, 0); opacity: 0; }
+}
+
+/* ============================================================
+   CONTENT LAYOUT
+   ============================================================ */
+.surf-content {
+  position: relative;
+  z-index: 10;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 32px 56px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* ---- Top bar — identical structure to setup/lock ---- */
+.surf-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(72,202,228,0.12);
+}
+.surf-top .wordmark { display: flex; align-items: center; gap: 12px; }
+.surf-top .wordmark-icon {
+  width: 30px; height: 30px;
+  border: 1px solid rgba(72,202,228,0.5);
+  border-radius: 50%;
+  display: grid; place-items: center;
+  color: var(--seafoam);
+  box-shadow: 0 0 16px rgba(72,202,228,0.25), inset 0 0 12px rgba(72,202,228,0.1);
+  background: rgba(13,59,107,0.35);
+  backdrop-filter: blur(6px);
+}
+.surf-top .wordmark-icon svg { width: 14px; height: 14px; }
+.surf-top .wordmark-text {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.42em;
+  color: var(--surface);
+  text-shadow: 0 0 16px rgba(72,202,228,0.35);
+}
+.surf-top .wordmark-text .slash { color: var(--seafoam); margin: 0 6px; font-weight: 400; }
+
+.surf-top-meta {
+  display: flex; align-items: center; gap: 28px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.surf-top-meta .meta-item { display: flex; align-items: center; gap: 8px; }
+.surf-top-meta .meta-item .num { color: var(--seafoam); font-weight: 500; }
+.surf-top-meta .meta-item.surfaced .num {
+  color: var(--sand);
+  text-shadow: 0 0 10px rgba(233,196,106,0.4);
+}
+.surf-top-meta .seal-dot {
+  display: inline-block;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--sand);
+  margin-right: 6px;
+  box-shadow: 0 0 10px var(--sand);
+  animation: surfBreathe 2.2s ease-in-out infinite;
+}
+@keyframes surfBreathe {
+  0%, 100% { opacity: 0.6; transform: scale(0.9); }
+  50%      { opacity: 1;   transform: scale(1.15); }
+}
+
+/* ---- Hero title ---- */
+.surf-hero {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.surf-hero .kicker {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.45em;
+  text-transform: uppercase;
+  color: var(--seafoam);
+  display: flex; align-items: center; gap: 14px;
+}
+.surf-hero .kicker::before {
+  content: ''; width: 38px; height: 1px;
+  background: linear-gradient(90deg, var(--seafoam), transparent);
+}
+.surf-hero h1 {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: clamp(32px, 4.6vw, 66px);
+  line-height: 1.02;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--surface);
+  text-shadow: 0 0 20px rgba(72,202,228,0.35);
+}
+.surf-hero h1 em {
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  font-weight: 400;
+  color: var(--seafoam);
+  text-transform: none;
+  letter-spacing: -0.01em;
+}
+.surf-hero .sub {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: var(--muted);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin-top: 6px;
+}
+.surf-hero .sub .accent { color: var(--seafoam); font-weight: 500; }
+
+/* ============================================================
+   CARDS  (the dark-glass HUD chrome, with corner brackets)
+   ============================================================ */
+.surf-card {
+  position: relative;
+  background:
+    linear-gradient(135deg, rgba(23,76,138,0.35), rgba(13,59,107,0.18) 70%),
+    rgba(6,16,32,0.72);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid rgba(72,202,228,0.2);
+  border-radius: 16px;
+  padding: 24px 26px;
+  box-shadow:
+    0 0 40px rgba(14,124,123,0.18),
+    0 24px 60px -32px rgba(0,0,0,0.7),
+    inset 0 1px 0 rgba(255,255,255,0.05);
+  overflow: hidden;
+}
+
+/* Corner bracket (top-left) — pure HUD language, lifted from the hatch */
+.surf-card::before {
+  content: '';
+  position: absolute;
+  top: 10px; left: 10px;
+  width: 14px; height: 14px;
+  border-top: 1.5px solid var(--seafoam);
+  border-left: 1.5px solid var(--seafoam);
+  border-radius: 3px 0 0 0;
+  opacity: 0.9;
+  pointer-events: none;
+}
+/* Corner bracket (bottom-right) */
+.surf-card::after {
+  content: '';
+  position: absolute;
+  bottom: 10px; right: 10px;
+  width: 14px; height: 14px;
+  border-bottom: 1.5px solid rgba(72,202,228,0.35);
+  border-right: 1.5px solid rgba(72,202,228,0.35);
+  border-radius: 0 0 3px 0;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.surf-card-label {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: var(--seafoam);
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.surf-card-label .pip {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--seafoam);
+  box-shadow: 0 0 8px var(--seafoam);
+}
+
+/* ============================================================
+   ROWS
+   ============================================================ */
+.surf-row-top {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) 2fr;
+  gap: 18px;
+}
+.surf-row-duo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.surf-row-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+/* ============================================================
+   PERFORMANCE RING (SVG, animates on mount)
+   ============================================================ */
+.perf-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  gap: 16px;
+}
+.perf-ring-wrap {
+  position: relative;
+  width: 156px; height: 156px;
+}
+.perf-ring-svg {
+  width: 100%; height: 100%;
+  transform: rotate(-90deg);
+  filter: drop-shadow(0 0 16px currentColor);
+}
+.perf-ring-track {
+  fill: none;
+  stroke: rgba(72,202,228,0.1);
+  stroke-width: 6;
+}
+.perf-ring-value {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 6;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 1.3s cubic-bezier(.22,.8,.2,1);
+}
+.perf-ring-number {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: 56px;
+  letter-spacing: 0.02em;
+  color: var(--surface);
+  text-shadow: 0 0 20px rgba(255,255,255,0.25);
+}
+.perf-status-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  background: rgba(0,0,0,0.25);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.perf-status-pill .pill-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+  animation: surfBreathe 2.2s ease-in-out infinite;
+}
+
+/* ============================================================
+   ASSIGNMENT SUMMARY
+   ============================================================ */
+.assign-card p {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  line-height: 1.7;
+  color: rgba(255,255,255,0.82);
+  letter-spacing: 0.01em;
+}
+
+/* ============================================================
+   STRENGTHS / AREAS TO IMPROVE
+   ============================================================ */
+.list-card ul {
+  list-style: none;
+  margin: 0; padding: 0;
+  display: flex; flex-direction: column;
+  gap: 12px;
+}
+.list-card li {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(72,202,228,0.08);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  color: rgba(255,255,255,0.85);
+}
+.list-card li:last-child { border-bottom: none; padding-bottom: 0; }
+.list-card li .bullet {
+  flex-shrink: 0;
+  display: inline-grid; place-items: center;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 1px;
+}
+.list-card.strengths li .bullet {
+  color: var(--teal-bright);
+  background: rgba(21,180,178,0.12);
+  border: 1px solid rgba(21,180,178,0.35);
+  box-shadow: 0 0 10px rgba(21,180,178,0.25);
+}
+.list-card.improve li .bullet {
+  color: var(--seafoam);
+  background: rgba(72,202,228,0.1);
+  border: 1px solid rgba(72,202,228,0.35);
+  box-shadow: 0 0 10px rgba(72,202,228,0.22);
+}
+
+/* ============================================================
+   STATS STRIP (5 metric tiles)
+   ============================================================ */
+.stat-tile {
+  position: relative;
+  background: rgba(6,16,32,0.65);
+  backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid rgba(72,202,228,0.18);
+  border-radius: 12px;
+  padding: 18px 14px 16px;
+  text-align: center;
+  overflow: hidden;
+}
+.stat-tile::before {
+  content: '';
+  position: absolute;
+  top: 6px; left: 6px;
+  width: 9px; height: 9px;
+  border-top: 1px solid var(--seafoam);
+  border-left: 1px solid var(--seafoam);
+  opacity: 0.7;
+}
+.stat-tile .stat-label {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+  line-height: 1.2;
+}
+.stat-tile .stat-value {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: 30px;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  color: var(--surface);
+}
+.stat-tile .stat-sub {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.14em;
+  margin-top: 8px;
+  text-transform: uppercase;
+}
+.stat-tile.warn .stat-value  { color: #F2A65A; text-shadow: 0 0 12px rgba(242,166,90,0.4); }
+.stat-tile.good .stat-value  { color: var(--teal-bright); text-shadow: 0 0 12px rgba(21,180,178,0.35); }
+.stat-tile.bad  .stat-value  { color: var(--danger); text-shadow: 0 0 12px rgba(231,111,81,0.4); }
+
+/* ============================================================
+   FOCUS TIMELINE
+   ============================================================ */
+.timeline-card .pct-bar {
+  display: flex;
+  height: 22px;
+  border-radius: 6px;
+  overflow: hidden;
+  gap: 2px;
+  background: rgba(255,255,255,0.04);
+}
+.timeline-card .pct-seg {
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  transition: width 0.6s ease;
+}
+.timeline-card .pct-seg.focused    { background: var(--teal-bright); color: #012a2a; }
+.timeline-card .pct-seg.paused     { background: var(--sand);        color: var(--deep-navy); }
+.timeline-card .pct-seg.distracted { background: var(--danger);      color: #fff; }
+
+.timeline-card .legend {
+  display: flex; gap: 22px; margin-top: 12px;
+}
+.timeline-card .legend span.entry {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.65);
+}
+.timeline-card .legend .swatch {
+  width: 10px; height: 10px; border-radius: 2px;
+}
+.timeline-card .legend .pct {
+  color: var(--seafoam);
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+}
+.timeline-card .buckets-label {
+  margin-top: 22px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+/* ============================================================
+   FROM CORAL (the emotional highlight)
+   ============================================================ */
+.coral-card {
+  text-align: center;
+  padding: 32px 36px;
+  background:
+    linear-gradient(135deg, rgba(233,196,106,0.05), rgba(14,124,123,0.06) 70%),
+    rgba(6,16,32,0.7);
+  border: 1px solid rgba(72,202,228,0.22);
+  box-shadow:
+    inset 0 0 40px rgba(14,124,123,0.12),
+    0 0 40px rgba(14,124,123,0.18),
+    0 24px 60px -32px rgba(0,0,0,0.7);
+}
+.coral-card .coral-rule {
+  width: 60px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--seafoam), transparent);
+  margin: 0 auto 20px;
+}
+.coral-card .coral-quote {
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  font-weight: 400;
+  font-size: clamp(17px, 1.6vw, 22px);
+  line-height: 1.55;
+  color: rgba(255,255,255,0.92);
+  letter-spacing: 0.01em;
+  max-width: 680px;
+  margin: 0 auto;
+}
+.coral-card .coral-signature {
+  margin-top: 18px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ============================================================
+   DIVE AGAIN CTA (matches the setup "DIVE IN" button)
+   ============================================================ */
+.surf-cta {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 0 6px;
+  flex-wrap: wrap;
+}
+
+/* The one CTA — ghost seafoam pill that ends the session and sends the
+   user back to the landing page. */
+.return-btn {
+  display: inline-flex; align-items: center; gap: 14px;
+  padding: 16px 34px 16px 26px;
+  background: rgba(6,16,32,0.55);
+  color: var(--seafoam);
+  border: 1px solid rgba(72,202,228,0.35);
+  border-radius: 100px;
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 0 24px rgba(72,202,228,0.12), inset 0 1px 0 rgba(255,255,255,0.05);
+  transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease, background .25s ease, color .25s ease;
+}
+.return-btn:hover {
+  color: var(--surface);
+  border-color: var(--seafoam);
+  background: rgba(72,202,228,0.12);
+  box-shadow: 0 0 40px rgba(72,202,228,0.3), inset 0 1px 0 rgba(255,255,255,0.08);
+  transform: translateY(-2px);
+}
+.return-btn:active { transform: translateY(0); }
+
+.return-btn .arrow.back {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: rgba(72,202,228,0.15);
+  border: 1px solid rgba(72,202,228,0.35);
+  color: var(--seafoam);
+  transition: transform .25s ease;
+}
+.return-btn:hover .arrow.back { transform: translateX(-3px); }
+.dive-again {
+  position: relative;
+  background: linear-gradient(135deg, var(--sand-lt) 0%, var(--sand) 60%, #c9a04a 100%);
+  color: var(--deep-navy);
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.18em;
+  padding: 16px 38px 16px 30px;
+  border: none;
+  border-radius: 100px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 14px;
+  text-transform: uppercase;
+  box-shadow:
+    0 0 40px rgba(233,196,106,0.45),
+    0 12px 28px -8px rgba(0,0,0,0.4),
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    inset 0 -8px 20px -10px rgba(140,100,30,0.45);
+  animation: goldPulse 3s ease-in-out infinite;
+  transition: transform .3s ease, box-shadow .3s ease;
+}
+.dive-again:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow:
+    0 0 70px rgba(233,196,106,0.65),
+    0 18px 32px -10px rgba(0,0,0,0.5),
+    inset 0 1px 0 rgba(255,255,255,0.55);
+}
+.dive-again:active { transform: translateY(-1px) scale(1); }
+.dive-again .arrow {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: var(--deep-navy);
+  color: var(--sand);
+  transition: transform .3s ease;
+}
+.dive-again:hover .arrow { transform: translateX(3px) rotate(-8deg); }
+
+/* ---- Footer coordinates ---- */
+.surf-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-top: 14px;
+  border-top: 1px solid rgba(72,202,228,0.08);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.surf-foot .line { flex: 0 0 80px; height: 1px; background: var(--faint); margin: 0 16px; }
+
+/* ============================================================
+   ENTRANCE CHOREOGRAPHY
+   ============================================================ */
+.surf-rise       { opacity: 0; transform: translateY(22px); }
+.surf-rise.go    { animation: surfRise 0.9s cubic-bezier(.22,.8,.2,1) forwards; }
+@keyframes surfRise { to { opacity: 1; transform: translateY(0); } }
+
+.surf-fade       { opacity: 0; }
+.surf-fade.go    { animation: surfFade 1.2s cubic-bezier(.2,.8,.2,1) forwards; }
+@keyframes surfFade { to { opacity: 1; } }
+
+/* ---- Loading state (before the AI report is ready) ---- */
+.surf-loading {
+  position: fixed; inset: 0;
+  display: grid; place-items: center;
+  background: #031021;
+  color: var(--seafoam);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  z-index: 60;
+}
+.surf-loading .spinner {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(72,202,228,0.15);
+  border-top-color: var(--seafoam);
+  animation: surfSpin 1s linear infinite;
+  margin: 0 auto 18px;
+}
+@keyframes surfSpin { to { transform: rotate(360deg); } }
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 960px) {
+  .surf-content { padding: 24px 22px 36px; }
+  .surf-row-top,
+  .surf-row-duo  { grid-template-columns: 1fr; }
+  .surf-row-stats { grid-template-columns: repeat(2, 1fr); }
+  .surf-creature { display: none; }
+  .surf-top-meta { display: none; }
+  .surf-foot { flex-direction: column; gap: 6px; text-align: center; }
+  .surf-foot .line { display: none; }
+}
