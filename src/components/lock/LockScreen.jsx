@@ -5,6 +5,9 @@ import { useSession } from '../../hooks/useSession.js'
 import { verifySubmission } from '../../lib/gemini.js'
 import { fileToGeminiParts } from '../../lib/fileUtils.js'
 import Cursor from '../ui/Cursor.jsx'
+import VoiceCoach from './VoiceCoach.jsx'
+import WebcamProctor from './WebcamProctor.jsx'
+import '../../styles/voice-coach.css'
 
 // Elements the custom cursor should visually "snap onto" — the ring
 // expands to its hover size when the pointer enters any of these.
@@ -12,6 +15,12 @@ const LOCK_HOVER_SELECTORS = [
   'button',
   'textarea',
   '.surface-btn',
+  '.skip-btn',
+  '.vc-launch',
+  '.vc-btn',
+  '.vc-close',
+  '.proctor-stop-btn',
+  '.proctor-toggle-btn',
   '.tooltip',
   'a',
 ]
@@ -68,8 +77,13 @@ export default function LockScreen({ file, arriving, onSubmit }) {
   const [workText,   setWorkText]   = useState('')
   const [autoSaved,  setAutoSaved]  = useState(false)
   const [verifying,  setVerifying]  = useState(false)
+  const [skipping,   setSkipping]   = useState(false)
   const [blockMsg,   setBlockMsg]   = useState(null)
   const saveKey = useRef(`deepdive_work_${Date.now()}`)
+  // Live ref so the voice coach can peek at the latest draft without forcing
+  // a re-render of the panel every keystroke.
+  const workTextRef = useRef('')
+  useEffect(() => { workTextRef.current = workText }, [workText])
 
   // ── hooks ───────────────────────────────────────────────────────────────────
   const { analysis, tabSwitches, fullscreenExits, setReport, setEndTime } = useSessionContext()
@@ -174,6 +188,43 @@ export default function LockScreen({ file, arriving, onSubmit }) {
     }
   }
 
+  // Hard skip — runs the same critical analysis but surfaces regardless
+  // of completion_status, so the dashboard reflects whatever the student
+  // actually submitted (even if partial or incorrect).
+  const handleSkip = async () => {
+    if (verifying || skipping) return
+    setSkipping(true)
+    setBlockMsg(null)
+
+    localStorage.setItem(saveKey.current, workText)
+
+    try {
+      const assignmentParts = await fileToGeminiParts(file)
+      const submissionParts = workText.trim()
+        ? [{ text: workText }]
+        : [{ text: '(No work submitted.)' }]
+      const report = await verifySubmission(assignmentParts, submissionParts)
+      setReport(report)
+      setEndTime(new Date())
+      finalizeSession(workText, report).catch(() => {})
+      onSubmit()
+    } catch {
+      // Even if analysis fails, proceed to the dashboard with a fallback
+      // report so the skip is truly a hard skip.
+      setReport({
+        assignment_summary: 'Session ended early — analysis unavailable.',
+        completion_status: 'incomplete',
+        performance_score: 0,
+        strengths: [],
+        areas_to_improve: ['Submission was skipped before verification completed.'],
+        encouragement: 'You chose to end the session early — review and try again when ready.',
+        unlock_reason: 'Session skipped before evaluation finished.',
+      })
+      setEndTime(new Date())
+      onSubmit()
+    }
+  }
+
   const fname = file?.name ?? 'assignment.pdf'
   const totalDistractions = tabSwitches + fullscreenExits
 
@@ -222,6 +273,7 @@ export default function LockScreen({ file, arriving, onSubmit }) {
               <span className="k">DISTRACTIONS</span>
               <span className={'v' + (totalDistractions > 0 ? ' distracted' : '')}>{totalDistractions}</span>
             </div>
+            <VoiceCoach analysis={analysis} workTextRef={workTextRef} />
           </div>
         </div>
 
@@ -312,17 +364,30 @@ export default function LockScreen({ file, arriving, onSubmit }) {
                 <span className="work-autosave">
                   {autoSaved ? '● Auto-saved' : words > 0 ? '○ Not saved yet' : ''}
                 </span>
-                <button
-                  className={'surface-btn' + (!canSubmit ? ' disabled' : '') + (verifying ? ' verifying' : '')}
-                  disabled={!canSubmit}
-                  onClick={handleSurface}
-                  title={words < 20 ? 'Write at least 20 words to submit' : ''}
-                >
-                  {verifying
-                    ? <><span className="surface-spinner" /> Verifying…</>
-                    : 'Surface 🌊'
-                  }
-                </button>
+                <div className="work-actions">
+                  <button
+                    className={'skip-btn' + (skipping ? ' verifying' : '')}
+                    disabled={verifying || skipping}
+                    onClick={handleSkip}
+                    title="Skip to dashboard with the work you've written so far"
+                  >
+                    {skipping
+                      ? <><span className="surface-spinner" /> Skipping…</>
+                      : 'Skip ⏭'
+                    }
+                  </button>
+                  <button
+                    className={'surface-btn' + (!canSubmit ? ' disabled' : '') + (verifying ? ' verifying' : '')}
+                    disabled={!canSubmit || skipping}
+                    onClick={handleSurface}
+                    title={words < 20 ? 'Write at least 20 words to submit' : ''}
+                  >
+                    {verifying
+                      ? <><span className="surface-spinner" /> Verifying…</>
+                      : 'Surface 🌊'
+                    }
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -341,6 +406,9 @@ export default function LockScreen({ file, arriving, onSubmit }) {
           </div>
         </div>
       </div>
+
+      {/* Webcam presence + phone detection widget */}
+      <WebcamProctor />
 
       {/* Custom cursor — mounted last so it paints over everything. */}
       <Cursor hoverSelectors={LOCK_HOVER_SELECTORS} />

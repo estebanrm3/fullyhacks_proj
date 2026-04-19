@@ -10,6 +10,7 @@ import { useSessionContext } from '../../context/SessionContext'
 import ScoreCard     from './ScoreCard'
 import MetricsRow    from './MetricsRow'
 import FocusTimeline from './FocusTimeline'
+import StudyInsights from './StudyInsights'
 import Cursor        from '../ui/Cursor.jsx'
 
 // Interactive elements the cursor ring should "snap onto" — the single
@@ -91,6 +92,8 @@ export default function SummaryDashboard({ onDiveAgain }) {
     endTime,
     events,
     assignment,
+    cameraAways,
+    phoneDetections,
   } = useSessionContext()
 
   // Flip to `go` shortly after mount so all the staggered entrance
@@ -204,13 +207,15 @@ export default function SummaryDashboard({ onDiveAgain }) {
           </div>
         </div>
 
-        {/* ── Row 3 — Five metric tiles ──────────────────────────────── */}
+        {/* ── Row 3 — Metric tiles ───────────────────────────────────── */}
         <div className={'surf-rise ' + (mounted ? 'go' : '')} style={stagger(6)}>
           <MetricsRow
             startTime={startTime}
             endTime={endTime}
             tabSwitches={tabSwitches}
             events={events}
+            cameraAways={cameraAways}
+            phoneDetections={phoneDetections}
           />
         </div>
 
@@ -220,8 +225,11 @@ export default function SummaryDashboard({ onDiveAgain }) {
           <FocusTimeline events={events} startTime={startTime} endTime={endTime} />
         </div>
 
-        {/* ── Row 5 — From Coral (emotional highlight) ───────────────── */}
-        <div className={'surf-card coral-card surf-rise ' + (mounted ? 'go' : '')} style={stagger(8)}>
+        {/* ── Row 5 — AI Study Insights ──────────────────────────────── */}
+        <StudyInsights style={stagger(8)} />
+
+        {/* ── Row 6 — From Coral (emotional highlight) ───────────────── */}
+        <div className={'surf-card coral-card surf-rise ' + (mounted ? 'go' : '')} style={stagger(9)}>
           <div className="surf-card-label" style={{ justifyContent: 'center' }}>
             <span className="pip" /> From Coral
           </div>
@@ -231,7 +239,7 @@ export default function SummaryDashboard({ onDiveAgain }) {
         </div>
 
         {/* ── Return CTA ─────────────────────────────────────────────── */}
-        <div className={'surf-cta surf-rise ' + (mounted ? 'go' : '')} style={stagger(9)}>
+        <div className={'surf-cta surf-rise ' + (mounted ? 'go' : '')} style={stagger(10)}>
           <button className="return-btn" onClick={onDiveAgain}>
             <span className="arrow back">
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -244,7 +252,7 @@ export default function SummaryDashboard({ onDiveAgain }) {
         </div>
 
         {/* ── Footer coordinates ─────────────────────────────────────── */}
-        <div className={'surf-foot surf-fade ' + (mounted ? 'go' : '')} style={stagger(10)}>
+        <div className={'surf-foot surf-fade ' + (mounted ? 'go' : '')} style={stagger(11)}>
           <span>N 47°36′ · W 122°20′</span>
           <span className="line" />
           <span>PACIFIC TRENCH · SECTOR 07 · ASCENT COMPLETE</span>

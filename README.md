@@ -1,4 +1,4 @@
-<div align="center">
+\<div align="center">
 
 # Deep Dive
 
@@ -64,8 +64,8 @@ Deep Dive is a three-phase focus ritual disguised as a deep-sea expedition.
 | Frontend | React 18 + Vite 6 |
 | Styling | Hand-rolled CSS (tokens + HUD chrome) |
 | Charts | Recharts (focus timeline) |
-| AI Voice | Gemini Live API |
-| AI Text | Gemini Flash (`gemini-2.5-flash`) |
+| AI Voice | Gemini Live API (`gemini-2.5-flash-native-audio-preview-12-2025`) |
+| AI Text | Gemini Flash (`gemini-flash-latest`) |
 | Database | Supabase (Postgres + Row-Level Security) |
 | Image Assets | nano-banana (Gemini image extension) |
 | Hosting | Vercel |
@@ -95,8 +95,10 @@ cp .env.example .env.local
 ```env
 VITE_SUPABASE_URL=your_supabase_project_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-VITE_GEMINI_API_KEY=your_gemini_api_key
+GEMINI_API_KEY=your_gemini_api_key
 ```
+
+`GEMINI_API_KEY` stays server-side. The browser only calls `/api/gemini` and `/api/live-token`, so the root Gemini key is not bundled into the client.
 
 ### Database Schema
 
@@ -144,7 +146,7 @@ src/
 │       ├── MetricsRow.jsx         # 4 HUD tiles (duration / away / switches / focus)
 │       └── FocusTimeline.jsx      # stacked % bar + 30s Recharts buckets
 ├── hooks/              # useLockScreen, useSession, useEventTracker, useCoral
-├── lib/                # supabase.js, gemini.js, geminiLive.js
+├── lib/                # supabase.js, gemini.js, liveCoach.js
 ├── context/            # SessionContext — global session state
 └── styles/
     ├── ocean.css       # landing + lock screen — bubble/jellyfish ambiance

@@ -31,10 +31,12 @@ function buildBuckets(events, startTime, endTime) {
     let bucketStatus = carryStatus
 
     for (const evt of inBucket) {
-      if (evt.type === 'tab_switch' || evt.type === 'fullscreen_exit') {
+      if (['tab_switch', 'fullscreen_exit', 'camera_away', 'phone_detected'].includes(evt.type)) {
         bucketStatus = 'distracted'
-        carryStatus  = 'focused'
-      } else if (evt.type === 'tab_return') {
+        // camera_away sticks as distracted until camera_return; other signals
+        // resolve within the bucket so the next one starts focused.
+        carryStatus  = evt.type === 'camera_away' ? 'distracted' : 'focused'
+      } else if (evt.type === 'tab_return' || evt.type === 'camera_return') {
         if (bucketStatus === 'distracted') bucketStatus = 'focused'
         carryStatus = 'focused'
       } else if (evt.type === 'pause') {
@@ -72,9 +74,9 @@ function calcPercentages(events, startTime, endTime) {
 
   for (const e of sorted) {
     const t = new Date(e.timestamp).getTime()
-    if (e.type === 'tab_switch' || e.type === 'fullscreen_exit') {
+    if (['tab_switch', 'fullscreen_exit', 'camera_away', 'phone_detected'].includes(e.type)) {
       if (outAt === null) outAt = t
-    } else if (e.type === 'tab_return') {
+    } else if (e.type === 'tab_return' || e.type === 'camera_return') {
       if (outAt !== null) { distractedMs += t - outAt; outAt = null }
     } else if (e.type === 'pause') {
       if (pauseAt === null) pauseAt = t

@@ -14,6 +14,12 @@ export function SessionProvider({ children }) {
   const [endTime,          setEndTime]           = useState(null)
   const [report,           setReport]            = useState(null)
   const [events,           setEvents]            = useState([])
+  // Webcam proctor — counts mirrored out of the hook so the dashboard
+  // can keep reading them after the lock screen unmounts.
+  const [cameraAways,      setCameraAways]       = useState(0)
+  const [phoneDetections,  setPhoneDetections]   = useState(0)
+  // Post-session AI insights — cached so the dashboard only asks Gemini once.
+  const [studyInsights,    setStudyInsights]     = useState(null)
 
   return (
     <SessionContext.Provider
@@ -29,6 +35,9 @@ export function SessionProvider({ children }) {
         endTime,         setEndTime,
         report,          setReport,
         events,          setEvents,
+        cameraAways,     setCameraAways,
+        phoneDetections, setPhoneDetections,
+        studyInsights,   setStudyInsights,
       }}
     >
       {children}

@@ -1,0 +1,232 @@
+/* ============================================================
+   Voice Coach — launch pill + popover panel
+   ============================================================ */
+
+.vc-root {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* ---- Launch button ------------------------------------------------- */
+.vc-launch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px 9px 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(21,180,178,0.18), rgba(72,202,228,0.12));
+  border: 1px solid rgba(144, 224, 239, 0.35);
+  color: rgba(224, 251, 252, 0.92);
+  font-family: 'Syne', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  position: relative;
+  overflow: visible;
+  transition: background 200ms ease, border-color 200ms ease, transform 200ms ease, box-shadow 200ms ease;
+}
+.vc-launch:hover {
+  background: linear-gradient(135deg, rgba(21,180,178,0.28), rgba(72,202,228,0.18));
+  border-color: rgba(144, 224, 239, 0.65);
+  transform: translateY(-1px);
+  box-shadow: 0 0 24px rgba(72, 202, 228, 0.25);
+}
+.vc-launch-icon {
+  width: 16px;
+  height: 16px;
+  color: rgba(144, 224, 239, 0.95);
+  flex-shrink: 0;
+}
+.vc-launch-label {
+  white-space: nowrap;
+}
+.vc-launch-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  border: 1px solid rgba(144, 224, 239, 0.35);
+  opacity: 0;
+  pointer-events: none;
+}
+.vc-launch.live {
+  background: linear-gradient(135deg, rgba(231, 111, 81, 0.22), rgba(233, 196, 106, 0.18));
+  border-color: rgba(244, 162, 97, 0.6);
+  color: #ffe6c7;
+}
+.vc-launch.live .vc-launch-icon { color: #ffd59b; }
+.vc-launch.live .vc-launch-ring {
+  opacity: 1;
+  border-color: rgba(244, 162, 97, 0.65);
+  animation: vcPulse 1.6s ease-in-out infinite;
+}
+@keyframes vcPulse {
+  0%, 100% { transform: scale(1);    opacity: 0.55; }
+  50%      { transform: scale(1.06); opacity: 0.15; }
+}
+
+/* ---- Panel --------------------------------------------------------- */
+.vc-panel {
+  position: absolute;
+  top: calc(100% + 14px);
+  right: 0;
+  width: 340px;
+  padding: 16px 16px 14px;
+  border-radius: 16px;
+  background: linear-gradient(160deg, rgba(7, 24, 46, 0.92), rgba(10, 22, 40, 0.85));
+  border: 1px solid rgba(144, 224, 239, 0.22);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  box-shadow:
+    0 10px 40px rgba(0, 0, 0, 0.55),
+    0 0 60px rgba(21, 180, 178, 0.08);
+  z-index: 80;
+  animation: vcPanelIn 260ms cubic-bezier(.2,.8,.2,1);
+}
+@keyframes vcPanelIn {
+  from { opacity: 0; transform: translateY(-8px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+.vc-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.vc-panel-title {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.vc-panel-kicker {
+  font-family: 'Syne', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: rgba(233, 196, 106, 0.9);
+}
+.vc-panel-sub {
+  font-size: 11px;
+  color: rgba(224, 251, 252, 0.55);
+  letter-spacing: 0.06em;
+}
+.vc-close {
+  background: transparent;
+  border: none;
+  color: rgba(224, 251, 252, 0.55);
+  font-size: 20px;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 50%;
+  transition: color 0.15s, background 0.15s;
+}
+.vc-close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ---- Visualizer ---------------------------------------------------- */
+.vc-viz {
+  width: 100%;
+  height: 72px;
+  border-radius: 10px;
+  background:
+    radial-gradient(120% 80% at 50% 50%, rgba(72,202,228,0.06), transparent 70%),
+    rgba(3, 12, 24, 0.55);
+  border: 1px solid rgba(144, 224, 239, 0.08);
+  margin-bottom: 12px;
+}
+
+/* ---- Status line --------------------------------------------------- */
+.vc-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.vc-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(224, 251, 252, 0.35);
+  flex-shrink: 0;
+}
+.vc-status-dot.you       { background: #90e0ef; box-shadow: 0 0 10px #90e0ef; animation: vcBlink 1s ease-in-out infinite; }
+.vc-status-dot.coach     { background: #e9c46a; box-shadow: 0 0 10px #e9c46a; animation: vcBlink 0.6s ease-in-out infinite; }
+.vc-status-dot.thinking  { background: #f4a261; box-shadow: 0 0 10px rgba(244, 162, 97, 0.7); animation: vcBlink 0.75s ease-in-out infinite; }
+.vc-status-dot.connecting{ background: #15b4b2; animation: vcBlink 0.8s ease-in-out infinite; }
+.vc-status-dot.muted     { background: #e76f51; }
+.vc-status-dot.paused    { background: #f4a261; }
+.vc-status-dot.error     { background: #ff6b6b; box-shadow: 0 0 10px #ff6b6b; }
+.vc-status-label {
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  color: rgba(224, 251, 252, 0.85);
+  letter-spacing: 0.04em;
+}
+@keyframes vcBlink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+/* ---- Controls ------------------------------------------------------ */
+.vc-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.vc-btn {
+  padding: 10px 8px;
+  border-radius: 8px;
+  background: rgba(144, 224, 239, 0.08);
+  border: 1px solid rgba(144, 224, 239, 0.22);
+  color: rgba(224, 251, 252, 0.9);
+  font-family: 'Syne', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.vc-btn:hover:not(:disabled) {
+  background: rgba(144, 224, 239, 0.15);
+  border-color: rgba(144, 224, 239, 0.5);
+  transform: translateY(-1px);
+}
+.vc-btn.on {
+  background: rgba(231, 111, 81, 0.18);
+  border-color: rgba(231, 111, 81, 0.55);
+  color: #ffd1be;
+}
+.vc-btn.danger {
+  background: rgba(231, 111, 81, 0.12);
+  border-color: rgba(231, 111, 81, 0.35);
+  color: rgba(255, 209, 190, 0.9);
+}
+.vc-btn.danger:hover:not(:disabled) {
+  background: rgba(231, 111, 81, 0.25);
+  border-color: rgba(231, 111, 81, 0.7);
+}
+.vc-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ---- Footnote ------------------------------------------------------ */
+.vc-footnote {
+  font-size: 10px;
+  line-height: 1.5;
+  color: rgba(224, 251, 252, 0.45);
+  letter-spacing: 0.03em;
+  text-align: center;
+  font-style: italic;
+}
