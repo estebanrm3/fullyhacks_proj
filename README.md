@@ -53,9 +53,11 @@ Deep Dive is a three-phase focus ritual disguised as a deep-sea expedition.
 
 ## Screenshots
 
-| Setup | Lock Screen | Surface Dashboard |
-|---|---|---|
-| `./docs/setup.png` | `./docs/lockscreen.png` | `./docs/dashboard.png` |
+### Landing
+
+![Deep Dive landing page](./docs/landing.png)
+
+*Paste the assignment, hit* Dive In *— god-rays, a bioluminescent jellyfish, and a HUD telling you how deep you're about to go.*
 
 ---
 
