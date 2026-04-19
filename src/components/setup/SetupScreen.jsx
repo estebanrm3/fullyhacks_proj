@@ -1,5 +1,12 @@
+// SetupScreen — the landing page where the user drops their assignment file.
+// This is Phase 1 of Deep Dive. Everything visible before the user hits
+// "Dive In" lives here: the underwater backdrop, the jellyfish, the
+// floating particles, the file-upload "hatch" card, and the gold dive button.
+
 import { useState, useRef, useEffect, useMemo, Fragment } from 'react'
 
+// Small circular compass-ish SVG that sits inside the empty hatch card.
+// Kept as its own component so the JSX down in the render stays readable.
 function PortalIcon() {
   return (
     <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor"
@@ -12,15 +19,20 @@ function PortalIcon() {
   )
 }
 
+// The 60 little glowing dots drifting up the screen. We compute random
+// positions / sizes / colors ONCE with useMemo — they don't need to
+// change between renders. CSS handles the actual upward drift animation.
 function Particles() {
   const motes = useMemo(() => {
     const arr = []
     for (let i = 0; i < 60; i++) {
       const size = 1.5 + Math.random() * 3.2
-      const dur = 14 + Math.random() * 18
-      const delay = -Math.random() * dur
-      const dx = Math.random() * 100 - 50
+      const dur = 14 + Math.random() * 18          // how long one drift cycle takes
+      const delay = -Math.random() * dur           // negative = already mid-flight on mount
+      const dx = Math.random() * 100 - 50          // horizontal sway, passed to CSS var
       const tone = Math.random()
+      // Most are seafoam blue, a few are lighter cyan, and ~10% are warm gold
+      // to echo the dive button and add variety.
       const bg = tone < 0.7 ? '#48CAE4' : tone < 0.9 ? '#9BEDEF' : 'rgba(233,196,106,0.75)'
       const glow =
         tone < 0.7
@@ -34,12 +46,12 @@ function Particles() {
           width: size + 'px',
           height: size + 'px',
           left: Math.random() * 100 + 'vw',
-          top: 55 + Math.random() * 55 + 'vh',
+          top: 55 + Math.random() * 55 + 'vh',     // spawn in bottom half so they drift up
           animationDuration: dur + 's',
           animationDelay: delay + 's',
           background: bg,
           boxShadow: glow,
-          '--dx': dx + 'px',
+          '--dx': dx + 'px',                       // read by the @keyframes motedrift
         },
       })
     }
@@ -54,20 +66,32 @@ function Particles() {
   )
 }
 
+// Custom cursor: a small bright dot that snaps to the mouse + a larger
+// ring that lags behind with easing. The ring also changes shape on
+// hover / drag / error states. We use direct DOM writes via refs
+// (instead of React state) so the cursor never drops a frame.
 function Cursor({ hoverSelectors = [], dragActive, errorActive }) {
   const dotRef = useRef(null)
   const ringRef = useRef(null)
   const [hovering, setHovering] = useState(false)
+
+  // Keep the latest selector list in a ref so the useEffect below
+  // can read it without having to re-subscribe every time the array
+  // identity changes. (Prevents cursor jitter on parent re-renders.)
   const selectorsRef = useRef(hoverSelectors)
   selectorsRef.current = hoverSelectors
 
   useEffect(() => {
+    // Current "settled" position for the lagging ring.
     let rx = window.innerWidth / 2
     let ry = window.innerHeight / 2
+    // Raw mouse coords — where the dot snaps to.
     let mx = rx
     let my = ry
     let pendingDot = false
 
+    // Mousemove just records the coords. We queue the actual DOM write
+    // on the next animation frame so we only paint the cursor once per frame.
     const move = (e) => {
       mx = e.clientX
       my = e.clientY
@@ -83,6 +107,7 @@ function Cursor({ hoverSelectors = [], dragActive, errorActive }) {
     }
     window.addEventListener('mousemove', move, { passive: true })
 
+    // The ring smoothly chases the mouse with a simple lerp. Runs every frame.
     let raf
     const tick = () => {
       rx += (mx - rx) * 0.18
@@ -94,6 +119,8 @@ function Cursor({ hoverSelectors = [], dragActive, errorActive }) {
     }
     tick()
 
+    // When the mouse enters/leaves an "interactive" element (hatch, dive btn,
+    // clear btn), flip the ring to its larger hover style.
     const over = (e) => {
       const sels = selectorsRef.current
       const match = sels.some((sel) => e.target.closest && e.target.closest(sel))
@@ -124,6 +151,8 @@ function Cursor({ hoverSelectors = [], dragActive, errorActive }) {
   )
 }
 
+// Only accept PDF and .docx. We check both MIME type and filename
+// extension because Windows especially is unreliable about MIME.
 const ACCEPTED_EXT = /\.(pdf|docx)$/i
 
 function isValidFile(f) {
@@ -133,6 +162,7 @@ function isValidFile(f) {
   return ACCEPTED_EXT.test(f.name)
 }
 
+// Render bytes as something humans can read in the loaded-file row.
 function prettySize(n) {
   if (!n) return ''
   if (n < 1024) return n + ' B'
@@ -140,31 +170,41 @@ function prettySize(n) {
   return (n / (1024 * 1024)).toFixed(2) + ' MB'
 }
 
+// Pull the file extension out of a filename for the little "PDF"/"DOCX" chip.
 function getExt(name) {
   const m = /\.([^.]+)$/.exec(name || '')
   return m ? m[1].toUpperCase() : 'DOC'
 }
 
+// Stable array reference — passed to <Cursor>. If we inlined this as
+// [...] in JSX it would be a new array each render, which would blow up
+// the Cursor's useEffect dependency list and cause visual glitches.
 const HOVER_SELECTORS = ['.hatch', '.dive-btn', '.clear-btn']
 
-export default function SetupScreen({ onStart }) {
+export default function SetupScreen({ onStart, descending = false }) {
+  // File state + UI states for the hatch (drag hover, invalid flash, etc).
   const [file, setFile] = useState(null)
   const [dragging, setDragging] = useState(false)
-  const [invalid, setInvalid] = useState(false)
-  const [errorMsg, setErrorMsg] = useState(null)
-  const [mounted, setMounted] = useState(false)
-  const [parallax, setParallax] = useState({ x: 0, y: 0 })
-  const [tilt, setTilt] = useState({ rx: 0, ry: 0 })
-  const [ripples, setRipples] = useState([])
+  const [invalid, setInvalid] = useState(false)     // triggers the red shake animation
+  const [errorMsg, setErrorMsg] = useState(null)    // the visible "wrong file type" block
+  const [mounted, setMounted] = useState(false)     // flipped on after first paint to stagger the entrance animations
+  const [parallax, setParallax] = useState({ x: 0, y: 0 })  // mouse-driven backdrop drift, -0.5..0.5
+  const [tilt, setTilt] = useState({ rx: 0, ry: 0 })        // 3D card tilt in degrees
+  const [ripples, setRipples] = useState([])                // circular splashes on the dive button
   const inputRef = useRef(null)
   const hatchRef = useRef(null)
   const errorTimerRef = useRef(null)
 
+  // Flip `mounted` shortly after first paint so the CSS entrance
+  // animations (opacity+translate) can start — creates the rise-in stagger.
   useEffect(() => {
     const t = setTimeout(() => setMounted(true), 60)
     return () => clearTimeout(t)
   }, [])
 
+  // Track mouse position across the whole window for the parallax effect.
+  // We coalesce updates with rAF so we don't trigger a React render on
+  // every single mousemove pixel (which used to glitch the cursor).
   useEffect(() => {
     let pending = false
     let nx = 0
@@ -184,6 +224,8 @@ export default function SetupScreen({ onStart }) {
     return () => window.removeEventListener('mousemove', handler)
   }, [])
 
+  // Prevent the browser's default "open file in new tab" behavior when
+  // the user drops anywhere on the page — we handle drops only on the hatch.
   useEffect(() => {
     const p = (e) => e.preventDefault()
     window.addEventListener('dragover', p)
@@ -194,8 +236,10 @@ export default function SetupScreen({ onStart }) {
     }
   }, [])
 
+  // Clear any pending error-timer on unmount.
   useEffect(() => () => clearTimeout(errorTimerRef.current), [])
 
+  // Briefly show the error UI (red shake + wrong-file block), then clear.
   const flashError = (msg) => {
     setInvalid(true)
     setErrorMsg(msg)
@@ -206,6 +250,7 @@ export default function SetupScreen({ onStart }) {
     }, 2400)
   }
 
+  // Called by both drop and <input type=file> change. Accepts or bounces.
   const handleFiles = (files) => {
     const f = files && files[0]
     if (!f) return
@@ -219,6 +264,8 @@ export default function SetupScreen({ onStart }) {
     }
   }
 
+  // 3D tilt: when the mouse moves across the hatch card, tilt it slightly
+  // toward the cursor to give a physical "hovering object" feel.
   const handleCardMove = (e) => {
     const el = hatchRef.current
     if (!el) return
@@ -229,6 +276,8 @@ export default function SetupScreen({ onStart }) {
   }
   const handleCardLeave = () => setTilt({ rx: 0, ry: 0 })
 
+  // Drag handlers for the hatch card. `onDragOver` fires continuously,
+  // so we use it for both "enter" and "over" to keep the dragging flag true.
   const onDragOver = (e) => {
     e.preventDefault()
     setDragging(true)
@@ -243,6 +292,9 @@ export default function SetupScreen({ onStart }) {
     handleFiles(e.dataTransfer.files)
   }
 
+  // User clicked the gold Dive In button. Drop a ripple splash where they
+  // clicked, then hand control back to App via onStart so it can kick off
+  // the descent transition + fullscreen.
   const handleDive = (e) => {
     if (!file) return
     const r = e.currentTarget.getBoundingClientRect()
@@ -255,6 +307,7 @@ export default function SetupScreen({ onStart }) {
     onStart && onStart(file)
   }
 
+  // Label in the top-right of the hatch. Reflects whichever state is active.
   const statusLabel = errorMsg
     ? 'Rejected'
     : file
@@ -264,16 +317,22 @@ export default function SetupScreen({ onStart }) {
     : 'Ready'
 
   return (
-    <div className="stage">
+    // `.stage.descending` triggers the sink-and-blur-out animation
+    // that plays while App transitions us to the LockScreen.
+    <div className={'stage' + (descending ? ' descending' : '')}>
+      {/* The underwater photograph — slight parallax drift tied to mouse pos. */}
       <div
         className="backdrop"
         style={{ transform: `scale(1.06) translate(${parallax.x * -10}px, ${parallax.y * -6}px)` }}
       />
+      {/* Color-grading layer that sinks the bottom of the backdrop darker. */}
       <div className="backdrop-grade" />
+      {/* Soft warm light anchor near the top of the frame. */}
       <div className="surface-glow" />
 
       <Particles />
 
+      {/* Massive faint italic "deeper" word watermark behind the content. */}
       <div
         className={'big-word fade ' + (mounted ? 'go' : '')}
         style={{
@@ -285,6 +344,7 @@ export default function SetupScreen({ onStart }) {
         deeper
       </div>
 
+      {/* Soft teal aura sitting BEHIND the jellyfish so it glows against the water. */}
       <div
         className={'creature-halo fade ' + (mounted ? 'go' : '')}
         style={{
@@ -294,6 +354,9 @@ export default function SetupScreen({ onStart }) {
         }}
       />
 
+      {/* The jellyfish hero photo. The luminance-key SVG filter defined in
+          index.html (#jellyLuma) turns the black background of the PNG
+          transparent so only the glowing body shows. */}
       <img
         src="/assets/jellyfish.png"
         alt=""
@@ -305,9 +368,12 @@ export default function SetupScreen({ onStart }) {
         }}
       />
 
+      {/* Film grain overlay for texture. */}
       <div className="noise" />
 
+      {/* ---- Foreground UI ---- */}
       <div className="content">
+        {/* Top bar: brand mark on the left + session metadata on the right. */}
         <div className={'topbar enter ' + (mounted ? 'go' : '')} style={{ animationDelay: '0.3s' }}>
           <div className="wordmark">
             <div className="wordmark-icon">
@@ -325,6 +391,7 @@ export default function SetupScreen({ onStart }) {
           </div>
         </div>
 
+        {/* Two-column layout: left = editorial copy, right = upload + dive button. */}
         <div className="hero-grid">
           <div className="hero-left">
             <div className={'kicker enter ' + (mounted ? 'go' : '')} style={{ animationDelay: '0.55s' }} />
@@ -340,12 +407,17 @@ export default function SetupScreen({ onStart }) {
           </div>
 
           <div>
+            {/* The hatch wrapper owns the pulse-ring animation ::before. */}
             <div
               className={
                 'hatch-wrap enter ' + (mounted ? 'go ' : '') + (errorMsg ? 'invalid' : '')
               }
               style={{ animationDelay: '1.05s' }}
             >
+              {/* The hatch itself. Three visual states in the body:
+                    errorMsg → red "Wrong file type" block
+                    file     → loaded-row with file name + clear btn
+                    neither  → portal icon + "drop assignment here" prompt */}
               <div
                 ref={hatchRef}
                 className={
@@ -361,12 +433,15 @@ export default function SetupScreen({ onStart }) {
                 onMouseMove={handleCardMove}
                 onMouseLeave={handleCardLeave}
                 onClick={(e) => {
+                  // Don't re-trigger the file picker if they hit the clear btn
+                  // or if a file is already loaded.
                   if (e.target.closest('.clear-btn')) return
                   if (file) return
                   inputRef.current && inputRef.current.click()
                 }}
                 style={{ transform: `rotateX(${tilt.rx}deg) rotateY(${tilt.ry}deg)` }}
               >
+                {/* Header strip: "Hatch / 01" on the left, status pip on the right. */}
                 <div className="hatch-head">
                   <div className="ident">
                     <span className="bracket">⌐</span>
@@ -378,6 +453,7 @@ export default function SetupScreen({ onStart }) {
                   </div>
                 </div>
 
+                {/* Main body — swaps content based on state. */}
                 <div className="hatch-body">
                   {errorMsg && (
                     <div className="hatch-error">
@@ -409,6 +485,8 @@ export default function SetupScreen({ onStart }) {
                         onClick={(e) => {
                           e.stopPropagation()
                           setFile(null)
+                          // Reset the native input value so the same file
+                          // can be re-selected later if they want to.
                           if (inputRef.current) inputRef.current.value = ''
                         }}
                         aria-label="Remove file"
@@ -420,15 +498,18 @@ export default function SetupScreen({ onStart }) {
                     </div>
                   )}
 
+                  {/* The 1px bright line that sweeps across the card right after drop. */}
                   <div className="sweep" />
                 </div>
 
+                {/* Footer chips (PDF / DOCX pills + "local only" note). */}
                 <div className="hatch-foot">
                   <span className="chip">PDF</span>
                   <span>Encryption · Local only</span>
                   <span className="chip">DOCX</span>
                 </div>
 
+                {/* Hidden native file input — triggered by the card click above. */}
                 <input
                   ref={inputRef}
                   type="file"
@@ -439,6 +520,7 @@ export default function SetupScreen({ onStart }) {
               </div>
             </div>
 
+            {/* The gold Dive In button + its tiny supporting line. */}
             <div className={'launch-row enter ' + (mounted ? 'go' : '')} style={{ animationDelay: '1.2s' }}>
               <button
                 type="button"
@@ -453,6 +535,7 @@ export default function SetupScreen({ onStart }) {
                     <path d="m13 6 6 6-6 6" />
                   </svg>
                 </span>
+                {/* Expanding circle splash on click — one span per active ripple. */}
                 {ripples.map((r) => (
                   <span
                     key={r.id}
@@ -467,6 +550,7 @@ export default function SetupScreen({ onStart }) {
           </div>
         </div>
 
+        {/* Bottom-right editorial signature line ("N 47°36′ · W 122°20′"). */}
         <div className={'sig-mark fade ' + (mounted ? 'go' : '')} style={{ animationDelay: '1.6s', '--to-op': 1 }}>
           <span>N 47°36′ · W 122°20′</span>
           <span className="line" />
@@ -474,6 +558,7 @@ export default function SetupScreen({ onStart }) {
         </div>
       </div>
 
+      {/* Custom cursor mounted LAST so it overlays everything. */}
       <Cursor
         hoverSelectors={HOVER_SELECTORS}
         dragActive={dragging}
