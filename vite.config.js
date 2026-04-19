@@ -40,6 +40,11 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), localApiPlugin()],
+    // Don't let Vite pre-bundle MediaPipe's WASM loader — it ships its own
+    // dynamic loader path that breaks when bundled.
+    optimizeDeps: {
+      exclude: ['@mediapipe/tasks-vision'],
+    },
     server: {
       port: 3000,
       strictPort: true, // fail fast instead of silently picking another port

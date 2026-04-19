@@ -15,6 +15,26 @@ Return ONLY valid JSON with no markdown and no backticks:
   "helpful_reminder": "one short encouraging tip for getting started"
 }`
 
+const PHONE_PROMPT = `Look carefully at this image. Is there a smartphone or mobile phone visible anywhere -- held in someone's hand, resting on a surface, or showing on a screen? Answer with ONLY "yes" or "no".`
+
+const INSIGHTS_PROMPT_HEADER = `You are a study analytics coach. A student just finished a study session. Based on their actual behavior data, generate exactly 3 specific, actionable insights. Reference the real numbers -- don't be generic.
+
+Return ONLY valid JSON with no markdown and no backticks:
+{
+  "insights": [
+    {
+      "category": "Focus" | "Behavior" | "Performance" | "Environment" | "Progress",
+      "icon": "single emoji",
+      "title": "punchy 4-6 word title",
+      "body": "1-2 sentences of specific, actionable insight referencing their actual numbers"
+    }
+  ],
+  "overall_assessment": "1 sentence summary of their study habits based on the data",
+  "next_session_tip": "one specific, concrete tip for next time"
+}
+
+Session data:`
+
 const VERIFY_PROMPT = `You are an academic evaluator. Compare the original assignment requirements with the student's submitted work.
 
 Return ONLY valid JSON with no markdown and no backticks:
@@ -85,6 +105,61 @@ export async function verifySubmissionPayload(assignmentParts, submissionParts) 
   ])
 }
 
+// Single-image yes/no probe: returns { hasPhone: boolean }. Never throws —
+// a failed call returns false so the proctor loop keeps running.
+export async function detectPhonePayload(imageBase64) {
+  if (!imageBase64 || typeof imageBase64 !== 'string') {
+    return { hasPhone: false }
+  }
+  try {
+    const ai = createAi()
+    const response = await ai.models.generateContent({
+      model: TEXT_MODEL,
+      contents: [{
+        role: 'user',
+        parts: [
+          { text: PHONE_PROMPT },
+          { inlineData: { data: imageBase64, mimeType: 'image/jpeg' } },
+        ],
+      }],
+    })
+    const raw = String(response.text || '').trim().toLowerCase()
+    return { hasPhone: raw.startsWith('yes') }
+  } catch (error) {
+    console.error('[api/gemini] detectPhonePayload failed:', error)
+    return { hasPhone: false }
+  }
+}
+
+export async function generateInsightsPayload(metrics = {}) {
+  const {
+    assignment        = 'assignment',
+    durationMs        = 0,
+    focusPct          = 100,
+    tabSwitches       = 0,
+    fullscreenExits   = 0,
+    cameraAways       = 0,
+    phoneDetections   = 0,
+    performanceScore  = 0,
+    completionStatus  = 'incomplete',
+  } = metrics
+
+  const durationMin = Math.round(durationMs / 60000)
+
+  const dataBlock = `
+- Assignment: ${assignment}
+- Duration: ${durationMin} minutes
+- Focus Rate: ${focusPct}%
+- Tab Switches: ${tabSwitches} (times left the browser tab)
+- Fullscreen Exits: ${fullscreenExits}
+- Times Off Camera: ${cameraAways} (left their desk/screen)
+- Phone Detections: ${phoneDetections} (phone spotted on camera)
+- Performance Score: ${performanceScore}/100
+- Completion: ${completionStatus}`
+
+  return runTextPrompt([{ text: INSIGHTS_PROMPT_HEADER + dataBlock }])
+}
+
 export async function createLiveTokenPayload() {
   const ai = createAi({ apiVersion: 'v1alpha' })
   const now = Date.now()
@@ -137,6 +212,16 @@ export async function handleGeminiHttp(req, res) {
     if (body.kind === 'verify-submission') {
       const report = await verifySubmissionPayload(body.assignmentParts, body.submissionParts)
       return sendJson(res, 200, report)
+    }
+
+    if (body.kind === 'detect-phone') {
+      const result = await detectPhonePayload(body.imageBase64)
+      return sendJson(res, 200, result)
+    }
+
+    if (body.kind === 'generate-insights') {
+      const insights = await generateInsightsPayload(body.metrics || {})
+      return sendJson(res, 200, insights)
     }
 
     return sendJson(res, 400, { error: 'Unsupported Gemini request kind' })

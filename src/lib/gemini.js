@@ -18,6 +18,19 @@ const DEFAULT_REPORT = {
   unlock_reason: 'Verification service unavailable',
 }
 
+const DEFAULT_INSIGHTS = {
+  insights: [
+    {
+      category: 'Progress',
+      icon: '🎯',
+      title: 'Session Complete',
+      body: 'You finished your study session. Review the metrics above to spot patterns in your focus habits.',
+    },
+  ],
+  overall_assessment: 'Session data recorded successfully.',
+  next_session_tip: 'Minimize distractions in your environment to improve your focus rate next time.',
+}
+
 async function callGeminiApi(payload) {
   const response = await fetch('/api/gemini', {
     method: 'POST',
@@ -57,5 +70,32 @@ export async function verifySubmission(assignmentParts, submissionParts) {
   } catch (err) {
     console.error('[gemini] verifySubmission failed:', err)
     return DEFAULT_REPORT
+  }
+}
+
+// Fire-and-forget phone probe. Returns false on any failure so the proctor
+// loop never throws — a transient network/API blip shouldn't break detection.
+export async function detectPhoneInFrame(imageBase64) {
+  try {
+    const { hasPhone } = await callGeminiApi({
+      kind: 'detect-phone',
+      imageBase64,
+    })
+    return Boolean(hasPhone)
+  } catch (err) {
+    console.error('[gemini] detectPhoneInFrame failed:', err)
+    return false
+  }
+}
+
+export async function generateStudyInsights(metrics) {
+  try {
+    return await callGeminiApi({
+      kind: 'generate-insights',
+      metrics,
+    })
+  } catch (err) {
+    console.error('[gemini] generateStudyInsights failed:', err)
+    return DEFAULT_INSIGHTS
   }
 }

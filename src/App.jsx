@@ -9,6 +9,7 @@ import { fileToGeminiParts } from './lib/fileUtils.js'
 import './styles/lock.css'
 import './styles/dashboard.css'
 import './styles/cursor.css'
+import './styles/proctor.css'
 
 const DESCENT_MS = 1800
 

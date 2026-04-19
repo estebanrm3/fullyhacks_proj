@@ -6,6 +6,7 @@ import { verifySubmission } from '../../lib/gemini.js'
 import { fileToGeminiParts } from '../../lib/fileUtils.js'
 import Cursor from '../ui/Cursor.jsx'
 import VoiceCoach from './VoiceCoach.jsx'
+import WebcamProctor from './WebcamProctor.jsx'
 import '../../styles/voice-coach.css'
 
 // Elements the custom cursor should visually "snap onto" — the ring
@@ -18,6 +19,8 @@ const LOCK_HOVER_SELECTORS = [
   '.vc-launch',
   '.vc-btn',
   '.vc-close',
+  '.proctor-stop-btn',
+  '.proctor-toggle-btn',
   '.tooltip',
   'a',
 ]
@@ -403,6 +406,9 @@ export default function LockScreen({ file, arriving, onSubmit }) {
           </div>
         </div>
       </div>
+
+      {/* Webcam presence + phone detection widget */}
+      <WebcamProctor />
 
       {/* Custom cursor — mounted last so it paints over everything. */}
       <Cursor hoverSelectors={LOCK_HOVER_SELECTORS} />
