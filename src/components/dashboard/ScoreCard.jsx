@@ -1,27 +1,58 @@
-const STATUS_CONFIG = {
-  complete:   { label: 'Complete',   ringClass: 'text-green-400  border-green-400'  },
-  partial:    { label: 'Partial',    ringClass: 'text-yellow-400 border-yellow-400' },
-  incomplete: { label: 'Incomplete', ringClass: 'text-red-400    border-red-400'    },
+// ScoreCard — animated SVG ring with the student's performance score.
+// Ring color tracks the score: teal/green >= 80, sand >= 60, red below.
+// Animates the stroke-dashoffset from empty → actual on mount.
+
+import { useEffect, useState } from 'react'
+
+const STATUS_LABEL = {
+  complete:   'Complete',
+  partial:    'Partial',
+  incomplete: 'Incomplete',
 }
 
-function scoreRing(score) {
-  if (score >= 80) return 'text-green-400  border-green-400'
-  if (score >= 60) return 'text-yellow-400 border-yellow-400'
-  return              'text-red-400    border-red-400'
+function ringColor(score) {
+  if (score >= 80) return '#15b4b2' // teal-bright
+  if (score >= 60) return '#E9C46A' // sand
+  return              '#ff7b7b'     // danger
 }
 
-export default function ScoreCard({ score, status }) {
-  const ring   = scoreRing(score)
-  const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.partial
+export default function ScoreCard({ score = 0, status = 'partial' }) {
+  // Animate from 0 → score so the ring "fills" in.
+  const [displayed, setDisplayed] = useState(0)
+
+  useEffect(() => {
+    const t = setTimeout(() => setDisplayed(score), 80)
+    return () => clearTimeout(t)
+  }, [score])
+
+  const color = ringColor(score)
+  const size = 156
+  const stroke = 6
+  const r = (size - stroke) / 2
+  const c = 2 * Math.PI * r
+  const offset = c - (Math.max(0, Math.min(100, displayed)) / 100) * c
 
   return (
-    <div className="flex flex-col items-center gap-3">
-      <div className={`flex items-center justify-center w-28 h-28 rounded-full border-4 ${ring}`}>
-        <span className="text-4xl font-bold font-mono">{score}</span>
+    <>
+      <div className="perf-ring-wrap" style={{ color }}>
+        <svg className="perf-ring-svg" viewBox={`0 0 ${size} ${size}`}>
+          <circle className="perf-ring-track" cx={size / 2} cy={size / 2} r={r} />
+          <circle
+            className="perf-ring-value"
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            strokeDasharray={c}
+            strokeDashoffset={offset}
+          />
+        </svg>
+        <div className="perf-ring-number">{Math.round(score)}</div>
       </div>
-      <span className={`text-xs font-semibold px-3 py-1 rounded-full border ${config.ringClass} bg-white/5`}>
-        {config.label}
+
+      <span className="perf-status-pill" style={{ color }}>
+        <span className="pill-dot" />
+        {STATUS_LABEL[status] ?? STATUS_LABEL.partial}
       </span>
-    </div>
+    </>
   )
 }

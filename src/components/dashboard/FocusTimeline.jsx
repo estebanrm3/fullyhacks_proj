@@ -1,12 +1,16 @@
+// FocusTimeline — stacked percentage bar (focused / paused / distracted)
+// plus a granular Recharts bar broken into 30-second buckets so the
+// student can see when during the session they drifted.
+
 import { useMemo } from 'react'
 import { BarChart, Bar, Cell, XAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
 const BUCKET_MS = 30_000
 
 const STATUS_COLOR = {
-  focused:    '#0E7C7B',
-  paused:     '#E9C46A',
-  distracted: '#EF4444',
+  focused:    '#15b4b2', // teal-bright — matches --teal-bright token
+  paused:     '#E9C46A', // sand
+  distracted: '#ff7b7b', // danger
 }
 
 function buildBuckets(events, startTime, endTime) {
@@ -52,23 +56,65 @@ function buildBuckets(events, startTime, endTime) {
   return buckets
 }
 
-function calcPercentages(buckets) {
-  const total = buckets.length || 1
-  const counts = { focused: 0, paused: 0, distracted: 0 }
-  buckets.forEach(b => counts[b.status]++)
-  return {
-    focused:    Math.round((counts.focused    / total) * 100),
-    paused:     Math.round((counts.paused     / total) * 100),
-    distracted: Math.round((counts.distracted / total) * 100),
+// Time-based percentages so this lines up exactly with the "Focus Rate"
+// metric tile above. We sum real elapsed ms in each state by walking the
+// event log in chronological order, then normalize against session length.
+function calcPercentages(events, startTime, endTime) {
+  const start = new Date(startTime).getTime()
+  const end   = new Date(endTime ?? Date.now()).getTime()
+  const total = Math.max(1, end - start)
+  const sorted = [...events].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+
+  let distractedMs = 0
+  let pausedMs     = 0
+  let outAt        = null    // tab_switch timestamp waiting for a tab_return
+  let pauseAt      = null    // pause timestamp waiting for a resume
+
+  for (const e of sorted) {
+    const t = new Date(e.timestamp).getTime()
+    if (e.type === 'tab_switch' || e.type === 'fullscreen_exit') {
+      if (outAt === null) outAt = t
+    } else if (e.type === 'tab_return') {
+      if (outAt !== null) { distractedMs += t - outAt; outAt = null }
+    } else if (e.type === 'pause') {
+      if (pauseAt === null) pauseAt = t
+    } else if (e.type === 'resume') {
+      if (pauseAt !== null) { pausedMs += t - pauseAt; pauseAt = null }
+    }
   }
+  // Account for events still open at end-of-session.
+  if (outAt   !== null) distractedMs += end - outAt
+  if (pauseAt !== null) pausedMs     += end - pauseAt
+
+  const focusedMs = Math.max(0, total - distractedMs - pausedMs)
+
+  // Round to whole percentages but ensure they always sum to 100.
+  const focused    = Math.round((focusedMs    / total) * 100)
+  const paused     = Math.round((pausedMs     / total) * 100)
+  let   distracted = 100 - focused - paused
+  if (distracted < 0) distracted = 0
+  return { focused, paused, distracted }
 }
 
 function CustomTooltip({ active, payload }) {
   if (!active || !payload?.length) return null
   const { time, status } = payload[0].payload
   return (
-    <div className="bg-ocean border border-teal/40 rounded px-3 py-1.5 text-xs text-white shadow-lg">
-      <span className="font-mono">{time}</span>{' — '}
+    <div
+      style={{
+        background: 'rgba(6,16,32,0.92)',
+        border: '1px solid rgba(72,202,228,0.35)',
+        borderRadius: 4,
+        padding: '6px 10px',
+        fontFamily: 'DM Sans, sans-serif',
+        fontSize: 11,
+        letterSpacing: '0.15em',
+        textTransform: 'uppercase',
+        color: '#fff',
+      }}
+    >
+      <span style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700 }}>{time}</span>
+      {' · '}
       <span style={{ color: STATUS_COLOR[status] }}>{status}</span>
     </div>
   )
@@ -81,79 +127,76 @@ export default function FocusTimeline({ events, startTime, endTime }) {
   )
 
   if (!buckets.length) {
-    return <p className="text-white/30 text-sm text-center py-4">No session data available</p>
+    return (
+      <p style={{
+        color: 'rgba(255,255,255,0.4)',
+        fontSize: 12,
+        textAlign: 'center',
+        padding: '18px 0',
+        letterSpacing: '0.2em',
+        textTransform: 'uppercase',
+      }}>
+        No session data available
+      </p>
+    )
   }
 
-  const pct          = calcPercentages(buckets)
+  const pct = calcPercentages(events, startTime, endTime)
   const tickInterval = Math.max(1, Math.floor(buckets.length / 8))
 
   return (
-    <div className="space-y-4">
+    <>
       {/* Stacked percentage bar */}
-      <div>
-        <div className="flex rounded-lg overflow-hidden h-5" style={{ gap: 2 }}>
-          {pct.focused > 0 && (
-            <div
-              className="flex items-center justify-center text-[10px] font-bold text-white/80 transition-all"
-              style={{ width: `${pct.focused}%`, background: STATUS_COLOR.focused }}
-            >
-              {pct.focused >= 10 ? `${pct.focused}%` : ''}
-            </div>
-          )}
-          {pct.paused > 0 && (
-            <div
-              className="flex items-center justify-center text-[10px] font-bold text-deep-navy transition-all"
-              style={{ width: `${pct.paused}%`, background: STATUS_COLOR.paused }}
-            >
-              {pct.paused >= 10 ? `${pct.paused}%` : ''}
-            </div>
-          )}
-          {pct.distracted > 0 && (
-            <div
-              className="flex items-center justify-center text-[10px] font-bold text-white/80 transition-all"
-              style={{ width: `${pct.distracted}%`, background: STATUS_COLOR.distracted }}
-            >
-              {pct.distracted >= 10 ? `${pct.distracted}%` : ''}
-            </div>
-          )}
-        </div>
-
-        {/* Legend with percentages */}
-        <div className="flex gap-5 mt-2">
-          {[
-            { color: STATUS_COLOR.focused,    label: 'Focused',    pct: pct.focused    },
-            { color: STATUS_COLOR.paused,     label: 'Paused',     pct: pct.paused     },
-            { color: STATUS_COLOR.distracted, label: 'Distracted', pct: pct.distracted },
-          ].map(({ color, label, pct: p }) => (
-            <span key={label} className="flex items-center gap-1.5 text-xs text-white/60">
-              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: color }} />
-              {label} <span className="text-white/30">{p}%</span>
-            </span>
-          ))}
-        </div>
+      <div className="pct-bar">
+        {pct.focused > 0 && (
+          <div className="pct-seg focused" style={{ width: `${pct.focused}%` }}>
+            {pct.focused >= 10 ? `${pct.focused}%` : ''}
+          </div>
+        )}
+        {pct.paused > 0 && (
+          <div className="pct-seg paused" style={{ width: `${pct.paused}%` }}>
+            {pct.paused >= 10 ? `${pct.paused}%` : ''}
+          </div>
+        )}
+        {pct.distracted > 0 && (
+          <div className="pct-seg distracted" style={{ width: `${pct.distracted}%` }}>
+            {pct.distracted >= 10 ? `${pct.distracted}%` : ''}
+          </div>
+        )}
       </div>
 
-      {/* Granular 30-second bar chart */}
-      <div>
-        <p className="text-white/30 text-[10px] uppercase tracking-widest mb-2">30-second buckets</p>
-        <ResponsiveContainer width="100%" height={72}>
-          <BarChart data={buckets} barCategoryGap={1} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
-            <XAxis
-              dataKey="time"
-              tick={{ fill: '#48CAE4', fontSize: 9, fontFamily: 'DM Sans' }}
-              tickLine={false}
-              axisLine={false}
-              interval={tickInterval}
-            />
-            <Tooltip content={<CustomTooltip />} cursor={false} />
-            <Bar dataKey="value" radius={[2, 2, 0, 0]}>
-              {buckets.map((b, i) => (
-                <Cell key={i} fill={STATUS_COLOR[b.status]} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+      <div className="legend">
+        {[
+          { color: STATUS_COLOR.focused,    label: 'Focused',    value: pct.focused    },
+          { color: STATUS_COLOR.paused,     label: 'Paused',     value: pct.paused     },
+          { color: STATUS_COLOR.distracted, label: 'Distracted', value: pct.distracted },
+        ].map(({ color, label, value }) => (
+          <span key={label} className="entry">
+            <span className="swatch" style={{ background: color }} />
+            {label} <span className="pct">{value}%</span>
+          </span>
+        ))}
       </div>
-    </div>
+
+      {/* Granular bucket chart */}
+      <div className="buckets-label">30-second buckets</div>
+      <ResponsiveContainer width="100%" height={76}>
+        <BarChart data={buckets} barCategoryGap={1} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+          <XAxis
+            dataKey="time"
+            tick={{ fill: 'rgba(72,202,228,0.6)', fontSize: 9, fontFamily: 'DM Sans', letterSpacing: '0.1em' }}
+            tickLine={false}
+            axisLine={{ stroke: 'rgba(72,202,228,0.15)' }}
+            interval={tickInterval}
+          />
+          <Tooltip content={<CustomTooltip />} cursor={false} />
+          <Bar dataKey="value" radius={[3, 3, 0, 0]}>
+            {buckets.map((b, i) => (
+              <Cell key={i} fill={STATUS_COLOR[b.status]} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </>
   )
 }

@@ -42,7 +42,8 @@ Return ONLY valid JSON with no markdown and no backticks:
     const result = await model.generateContent([prompt, ...parts])
     const raw = result.response.text()
     return JSON.parse(raw.replace(/```json[\s\S]*?```|```/g, '').trim())
-  } catch {
+  } catch (err) {
+    console.error('[gemini] analyzeAssignment failed:', err)
     return DEFAULT_ANALYSIS
   }
 }
@@ -79,7 +80,8 @@ ORIGINAL ASSIGNMENT:`
     ])
     const raw = result.response.text()
     return JSON.parse(raw.replace(/```json[\s\S]*?```|```/g, '').trim())
-  } catch {
+  } catch (err) {
+    console.error('[gemini] verifySubmission failed:', err)
     return DEFAULT_REPORT
   }
 }

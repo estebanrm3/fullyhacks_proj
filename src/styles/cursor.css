@@ -1,0 +1,52 @@
+/* Shared custom cursor styling — pulled out of setup.css so the Lock
+   and Surface screens can use the same dot + ring without duplication. */
+
+.cursor-dot, .cursor-ring {
+  position: fixed; top: 0; left: 0;
+  pointer-events: none;
+  z-index: 9999;
+  transform: translate(-50%, -50%);
+  mix-blend-mode: screen;
+}
+
+.cursor-dot {
+  width: 5px; height: 5px;
+  background: #48CAE4;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #48CAE4;
+}
+
+.cursor-ring {
+  width: 32px; height: 32px;
+  border: 1px solid rgba(72,202,228,0.55);
+  border-radius: 50%;
+  box-shadow: 0 0 14px rgba(72,202,228,0.2);
+  transition:
+    width .25s,
+    height .25s,
+    border-color .25s,
+    background .25s,
+    border-radius .25s;
+}
+
+.cursor-ring.hover {
+  width: 58px; height: 58px;
+  border-color: #48CAE4;
+  background: rgba(72,202,228,0.08);
+}
+
+.cursor-ring.drag {
+  width: 70px; height: 70px;
+  border-radius: 30% 70% 70% 30%;
+  background: rgba(72,202,228,0.15);
+}
+
+.cursor-ring.err {
+  border-color: #e76f51;
+  background: rgba(231,111,81,0.15);
+  box-shadow: 0 0 14px rgba(231,111,81,0.35);
+}
+
+@media (max-width: 800px) {
+  .cursor-dot, .cursor-ring { display: none; }
+}

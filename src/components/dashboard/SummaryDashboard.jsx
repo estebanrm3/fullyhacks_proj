@@ -1,35 +1,85 @@
-import { motion } from 'framer-motion'
+// SummaryDashboard — Phase 3, the "you surfaced" view.
+// Shares the visual DNA of SetupScreen + LockScreen (same font stack,
+// same HUD chrome, same color tokens). The narrative shift is the
+// background: light rays from above instead of the dark deep-sea photo,
+// and a bioluminescent fish drifting in the corner like the jellyfish
+// did on the landing page.
+
+import { useEffect, useMemo, useState } from 'react'
 import { useSessionContext } from '../../context/SessionContext'
-import ScoreCard    from './ScoreCard'
-import MetricsRow   from './MetricsRow'
+import ScoreCard     from './ScoreCard'
+import MetricsRow    from './MetricsRow'
 import FocusTimeline from './FocusTimeline'
+import Cursor        from '../ui/Cursor.jsx'
 
-const container = {
-  hidden: {},
-  show:   { transition: { staggerChildren: 0.08 } },
-}
+// Interactive elements the cursor ring should "snap onto" — the single
+// return button, any cards that might become clickable, etc.
+const SURF_HOVER_SELECTORS = [
+  '.return-btn',
+  '.dive-again',
+  '.surf-card',
+  'button',
+  'a',
+]
 
-const cardVariant = {
-  hidden: { opacity: 0, y: 24 },
-  show:   { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
-}
+// Same sparse particle field as the setup screen but drifting upward
+// more gently — we've surfaced, so it reads like surface foam rather
+// than deep-sea bioluminescence.
+function SurfaceParticles() {
+  const motes = useMemo(() => {
+    const arr = []
+    for (let i = 0; i < 26; i++) {
+      const size = 1.2 + Math.random() * 2.4
+      const dur  = 18 + Math.random() * 16
+      const delay = -Math.random() * dur
+      const dx   = Math.random() * 80 - 40
+      arr.push({
+        key: i,
+        style: {
+          width:  size + 'px',
+          height: size + 'px',
+          left:   Math.random() * 100 + 'vw',
+          top:    60 + Math.random() * 50 + 'vh',
+          animationDuration: dur + 's',
+          animationDelay: delay + 's',
+          '--dx': dx + 'px',
+        },
+      })
+    }
+    return arr
+  }, [])
 
-function GlassCard({ children, className = '' }) {
   return (
-    <motion.div
-      variants={cardVariant}
-      className={`rounded-2xl border border-seafoam/20 bg-white/5 backdrop-blur-md p-5 shadow-[0_0_30px_rgba(14,124,123,0.1)] ${className}`}
-    >
-      {children}
-    </motion.div>
+    <div className="surf-particles" aria-hidden="true">
+      {motes.map(m => <div key={m.key} className="surf-mote" style={m.style} />)}
+    </div>
   )
 }
 
-function SectionLabel({ children }) {
+// Today's date in HUD format: "19 APR 2026 · 10:42"
+function formatStamp(d) {
+  if (!d) return ''
+  const date = d instanceof Date ? d : new Date(d)
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC']
+  const day = String(date.getDate()).padStart(2, '0')
+  const mon = months[date.getMonth()]
+  const yr  = date.getFullYear()
+  const hh  = String(date.getHours()).padStart(2, '0')
+  const mm  = String(date.getMinutes()).padStart(2, '0')
+  return `${day} ${mon} ${yr} · ${hh}:${mm}`
+}
+
+function Wordmark() {
   return (
-    <p className="text-seafoam text-[10px] font-semibold uppercase tracking-[0.15em] mb-3">
-      {children}
-    </p>
+    <div className="wordmark">
+      <div className="wordmark-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 12c2-3 4-3 6 0s4 3 6 0 4-3 6 0" />
+          <path d="M3 17c2-3 4-3 6 0s4 3 6 0 4-3 6 0" opacity="0.5" />
+        </svg>
+      </div>
+      <div className="wordmark-text">DEEP<span className="slash">/</span>DIVE</div>
+    </div>
   )
 }
 
@@ -37,133 +87,172 @@ export default function SummaryDashboard({ onDiveAgain }) {
   const {
     report,
     tabSwitches,
-    fullscreenExits,
-    pauses,
     startTime,
     endTime,
     events,
+    assignment,
   } = useSessionContext()
+
+  // Flip to `go` shortly after mount so all the staggered entrance
+  // animations (opacity + translate) kick off together.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    const t = setTimeout(() => setMounted(true), 50)
+    return () => clearTimeout(t)
+  }, [])
 
   if (!report) {
     return (
-      <div className="min-h-screen bg-deep-navy flex items-center justify-center">
-        <p className="text-seafoam text-sm animate-pulse">Analyzing your session...</p>
+      <div className="surf-loading">
+        <div>
+          <div className="spinner" />
+          <div>Analyzing your dive…</div>
+        </div>
       </div>
     )
   }
 
+  const stamp = formatStamp(endTime ?? new Date())
+  const fname = assignment || 'assignment'
+
+  // Stagger helper — each step is 120ms apart.
+  const stagger = (i) => ({ animationDelay: `${0.15 + i * 0.12}s` })
+
   return (
-    <div className="h-screen overflow-y-auto bg-gradient-to-b from-deep-navy via-[#0A1C38] to-ocean px-6 py-10" style={{ cursor: 'auto' }}>
+    <div className="surf-stage">
+      <div className="surf-backdrop" />
+      <div className="surf-grade" />
+      <div className="surf-glow" />
+      <SurfaceParticles />
 
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="text-center mb-10"
-      >
-        <div className="text-5xl mb-3">🌊</div>
-        <h1 className="text-4xl font-bold text-white tracking-tight">Your Deep Dive Report</h1>
-        <p className="text-seafoam/70 mt-2 text-sm">You made it to the surface! 🎉</p>
-      </motion.div>
+      <div className="surf-creature-halo" />
+      <img
+        src="/assets/turtle.png"
+        alt=""
+        className="surf-creature"
+        onError={e => { e.currentTarget.style.display = 'none' }}
+      />
 
-      <motion.div
-        variants={container}
-        initial="hidden"
-        animate="show"
-        className="max-w-5xl mx-auto space-y-4"
-      >
-        {/* Row 1: Score + Assignment Summary */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <GlassCard className="flex flex-col items-center justify-center gap-4">
-            <SectionLabel>Performance</SectionLabel>
+      <div className="surf-noise" />
+
+      <div className="surf-content">
+        {/* ── Top bar — same structure as Setup/Lock ─────────────────── */}
+        <div className={'surf-top surf-fade ' + (mounted ? 'go' : '')} style={stagger(0)}>
+          <Wordmark />
+          <div className="surf-top-meta">
+            <div className="meta-item surfaced">
+              <span className="seal-dot" />
+              SESSION <span className="num">— COMPLETE</span>
+            </div>
+            <div className="meta-item">DEPTH <span className="num">0 M</span></div>
+            <div className="meta-item">O₂ <span className="num">100%</span></div>
+          </div>
+        </div>
+
+        {/* ── Hero ───────────────────────────────────────────────────── */}
+        <div className={'surf-hero surf-rise ' + (mounted ? 'go' : '')} style={stagger(1)}>
+          <div className="kicker">ASCENT · COMPLETE</div>
+          <h1>
+            You <em>surfaced.</em><br />
+            Here&apos;s your dive report.
+          </h1>
+          <div className="sub">
+            <span className="accent">{fname}</span> &nbsp;·&nbsp; {stamp}
+          </div>
+        </div>
+
+        {/* ── Row 1 — Performance ring + Assignment summary ──────────── */}
+        <div className="surf-row-top">
+          <div className={'surf-card perf-card surf-rise ' + (mounted ? 'go' : '')} style={stagger(2)}>
+            <div className="surf-card-label"><span className="pip" /> Performance</div>
             <ScoreCard
               score={report.performance_score}
               status={report.completion_status}
             />
-          </GlassCard>
+          </div>
 
-          <GlassCard className="md:col-span-2">
-            <SectionLabel>Assignment Summary</SectionLabel>
-            <p className="text-white/80 text-sm leading-relaxed">{report.assignment_summary}</p>
-          </GlassCard>
+          <div className={'surf-card assign-card surf-rise ' + (mounted ? 'go' : '')} style={stagger(3)}>
+            <div className="surf-card-label"><span className="pip" /> Assignment Summary</div>
+            <p>{report.assignment_summary}</p>
+          </div>
         </div>
 
-        {/* Row 2: Strengths + Areas to Improve */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <GlassCard>
-            <SectionLabel>Strengths</SectionLabel>
-            <ul className="space-y-2">
+        {/* ── Row 2 — Strengths + Areas to Improve ───────────────────── */}
+        <div className="surf-row-duo">
+          <div className={'surf-card list-card strengths surf-rise ' + (mounted ? 'go' : '')} style={stagger(4)}>
+            <div className="surf-card-label"><span className="pip" /> Strengths</div>
+            <ul>
               {report.strengths.map((s, i) => (
-                <li key={i} className="flex items-start gap-2.5 text-sm text-white/80">
-                  <span className="text-green-400 mt-0.5 shrink-0">✓</span>
+                <li key={i}>
+                  <span className="bullet">✓</span>
                   <span>{s}</span>
                 </li>
               ))}
             </ul>
-          </GlassCard>
+          </div>
 
-          <GlassCard>
-            <SectionLabel>Areas to Improve</SectionLabel>
-            <ul className="space-y-2">
+          <div className={'surf-card list-card improve surf-rise ' + (mounted ? 'go' : '')} style={stagger(5)}>
+            <div className="surf-card-label"><span className="pip" /> Areas to Improve</div>
+            <ul>
               {report.areas_to_improve.map((a, i) => (
-                <li key={i} className="flex items-start gap-2.5 text-sm text-white/80">
-                  <span className="text-sand mt-0.5 shrink-0">→</span>
+                <li key={i}>
+                  <span className="bullet">→</span>
                   <span>{a}</span>
                 </li>
               ))}
             </ul>
-          </GlassCard>
+          </div>
         </div>
 
-        {/* Row 3: Metrics */}
-        <motion.div variants={cardVariant}>
+        {/* ── Row 3 — Five metric tiles ──────────────────────────────── */}
+        <div className={'surf-rise ' + (mounted ? 'go' : '')} style={stagger(6)}>
           <MetricsRow
             startTime={startTime}
             endTime={endTime}
             tabSwitches={tabSwitches}
-            fullscreenExits={fullscreenExits}
-            pauses={pauses}
             events={events}
           />
-        </motion.div>
+        </div>
 
-        {/* Row 4: Focus Timeline */}
-        <GlassCard>
-          <SectionLabel>Focus Timeline</SectionLabel>
+        {/* ── Row 4 — Focus timeline ─────────────────────────────────── */}
+        <div className={'surf-card timeline-card surf-rise ' + (mounted ? 'go' : '')} style={stagger(7)}>
+          <div className="surf-card-label"><span className="pip" /> Focus Timeline</div>
           <FocusTimeline events={events} startTime={startTime} endTime={endTime} />
-          <div className="flex gap-5 mt-3 justify-end">
-            {[
-              { color: '#0E7C7B', label: 'Focused'    },
-              { color: '#E9C46A', label: 'Paused'     },
-              { color: '#EF4444', label: 'Distracted' },
-            ].map(({ color, label }) => (
-              <span key={label} className="flex items-center gap-1.5 text-xs text-white/50">
-                <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: color }} />
-                {label}
-              </span>
-            ))}
+        </div>
+
+        {/* ── Row 5 — From Coral (emotional highlight) ───────────────── */}
+        <div className={'surf-card coral-card surf-rise ' + (mounted ? 'go' : '')} style={stagger(8)}>
+          <div className="surf-card-label" style={{ justifyContent: 'center' }}>
+            <span className="pip" /> From Coral
           </div>
-        </GlassCard>
+          <div className="coral-rule" />
+          <div className="coral-quote">&ldquo;{report.encouragement}&rdquo;</div>
+          <div className="coral-signature">— Coral · Study buddy</div>
+        </div>
 
-        {/* Row 5: Encouragement from Coral */}
-        <GlassCard className="border-sand/30 bg-sand/5 text-center">
-          <SectionLabel>From Coral</SectionLabel>
-          <p className="text-white/90 italic text-base leading-relaxed">
-            "{report.encouragement}"
-          </p>
-        </GlassCard>
-
-        {/* Dive Again CTA */}
-        <motion.div variants={cardVariant} className="text-center pb-6">
-          <button
-            onClick={onDiveAgain}
-            className="px-10 py-3 rounded-full bg-sand text-deep-navy font-bold text-sm hover:brightness-110 active:scale-95 transition-all"
-          >
-            Dive Again 🤿
+        {/* ── Return CTA ─────────────────────────────────────────────── */}
+        <div className={'surf-cta surf-rise ' + (mounted ? 'go' : '')} style={stagger(9)}>
+          <button className="return-btn" onClick={onDiveAgain}>
+            <span className="arrow back">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5" />
+                <path d="m11 18-6-6 6-6" />
+              </svg>
+            </span>
+            <span>Return to Surface</span>
           </button>
-        </motion.div>
-      </motion.div>
+        </div>
+
+        {/* ── Footer coordinates ─────────────────────────────────────── */}
+        <div className={'surf-foot surf-fade ' + (mounted ? 'go' : '')} style={stagger(10)}>
+          <span>N 47°36′ · W 122°20′</span>
+          <span className="line" />
+          <span>PACIFIC TRENCH · SECTOR 07 · ASCENT COMPLETE</span>
+        </div>
+      </div>
+
+      {/* Custom cursor — same dot + ring as Setup and Lock, unified feel. */}
+      <Cursor hoverSelectors={SURF_HOVER_SELECTORS} />
     </div>
   )
 }

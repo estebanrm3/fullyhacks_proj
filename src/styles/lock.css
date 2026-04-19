@@ -17,6 +17,11 @@
 }
 .lock-stage.in { opacity: 1; pointer-events: auto; }
 
+/* Hide the OS cursor while the lock screen owns the viewport — the custom
+   dot + ring handle pointer feedback. Scoped so we don't leak into modals. */
+.lock-stage, .lock-stage * { cursor: none; }
+@media (max-width: 800px) { .lock-stage, .lock-stage * { cursor: auto; } }
+
 /* During the descending phase, the lock view animates in from a crushed,
    zoomed-in state — feels like the camera is still falling. */
 .lock-stage.arriving .lock-backdrop { animation: lockDive 1.6s cubic-bezier(.2,.7,.15,1) forwards; }

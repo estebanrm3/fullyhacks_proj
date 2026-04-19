@@ -4,6 +4,17 @@ import { useEventTracker } from '../../hooks/useEventTracker.js'
 import { useSession } from '../../hooks/useSession.js'
 import { verifySubmission } from '../../lib/gemini.js'
 import { fileToGeminiParts } from '../../lib/fileUtils.js'
+import Cursor from '../ui/Cursor.jsx'
+
+// Elements the custom cursor should visually "snap onto" — the ring
+// expands to its hover size when the pointer enters any of these.
+const LOCK_HOVER_SELECTORS = [
+  'button',
+  'textarea',
+  '.surface-btn',
+  '.tooltip',
+  'a',
+]
 
 function prettyTime(ms) {
   const s = Math.max(0, Math.floor(ms / 1000))
@@ -61,7 +72,7 @@ export default function LockScreen({ file, arriving, onSubmit }) {
   const saveKey = useRef(`deepdive_work_${Date.now()}`)
 
   // ── hooks ───────────────────────────────────────────────────────────────────
-  const { analysis, tabSwitches, fullscreenExits, setReport } = useSessionContext()
+  const { analysis, tabSwitches, fullscreenExits, setReport, setEndTime } = useSessionContext()
   const { logEvent }        = useEventTracker()
   const { finalizeSession } = useSession()
   const logRef = useRef(logEvent)
@@ -145,6 +156,7 @@ export default function LockScreen({ file, arriving, onSubmit }) {
 
       if (report.completion_status === 'complete') {
         setReport(report)
+        setEndTime(new Date())
         finalizeSession(workText, report).catch(() => {})
         onSubmit()
       } else {
@@ -329,6 +341,9 @@ export default function LockScreen({ file, arriving, onSubmit }) {
           </div>
         </div>
       </div>
+
+      {/* Custom cursor — mounted last so it paints over everything. */}
+      <Cursor hoverSelectors={LOCK_HOVER_SELECTORS} />
     </div>
   )
 }

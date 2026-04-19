@@ -7,6 +7,8 @@ import { useSession } from './hooks/useSession.js'
 import { analyzeAssignment } from './lib/gemini.js'
 import { fileToGeminiParts } from './lib/fileUtils.js'
 import './styles/lock.css'
+import './styles/dashboard.css'
+import './styles/cursor.css'
 
 const DESCENT_MS = 1800
 

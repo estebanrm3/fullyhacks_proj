@@ -1,3 +1,7 @@
+// MetricsRow — five HUD tiles in a single strip. Colors track severity:
+// distraction counts turn warn-orange the moment they go above zero,
+// focus rate stays teal until it drops below 70% / 40%.
+
 function formatDuration(ms) {
   if (!ms || ms < 0) return '—'
   const totalSec = Math.floor(ms / 1000)
@@ -9,7 +13,7 @@ function formatDuration(ms) {
   return `${s}s`
 }
 
-// Calculates total milliseconds the user was away using tab_switch / tab_return pairs
+// Sums time between tab_switch / tab_return pairs — what the student spent away.
 function calcTimeAway(events) {
   const sorted = [...events].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
   let away = 0
@@ -24,63 +28,54 @@ function calcTimeAway(events) {
   return away
 }
 
-function MetricCard({ label, value, sub, valueColor = 'text-seafoam' }) {
+function StatTile({ label, value, sub, tone = '' }) {
   return (
-    <div className="rounded-2xl border border-seafoam/20 bg-white/5 backdrop-blur-md p-5 text-center">
-      <p className="text-seafoam text-[10px] font-semibold uppercase tracking-[0.15em] mb-2">{label}</p>
-      <p className={`text-3xl font-mono font-bold ${valueColor}`}>{value}</p>
-      {sub && <p className="text-white/40 text-xs mt-1">{sub}</p>}
+    <div className={'stat-tile ' + tone}>
+      <div className="stat-label">{label}</div>
+      <div className="stat-value">{value}</div>
+      {sub && <div className="stat-sub">{sub}</div>}
     </div>
   )
 }
 
-export default function MetricsRow({ startTime, endTime, tabSwitches, fullscreenExits, pauses, events = [] }) {
-  const sessionMs     = startTime && endTime ? new Date(endTime) - new Date(startTime) : 0
-  const timeAwayMs    = calcTimeAway(events)
-  const distractions  = (tabSwitches ?? 0) + (fullscreenExits ?? 0)
+export default function MetricsRow({
+  startTime,
+  endTime,
+  tabSwitches = 0,
+  events = [],
+}) {
+  const sessionMs  = startTime && endTime ? new Date(endTime) - new Date(startTime) : 0
+  const timeAwayMs = calcTimeAway(events)
+  const focusMs    = Math.max(0, sessionMs - timeAwayMs)
+  const focusPct   = sessionMs > 0 ? Math.round((focusMs / sessionMs) * 100) : 100
 
-  const focusMs       = Math.max(0, sessionMs - timeAwayMs)
-  const focusPct      = sessionMs > 0 ? Math.round((focusMs / sessionMs) * 100) : 0
-
-  const distractColor =
-    distractions === 0 ? 'text-green-400' :
-    distractions  <  3 ? 'text-yellow-400' :
-                         'text-red-400'
-
-  const focusColor =
-    focusPct >= 80 ? 'text-green-400' :
-    focusPct >= 60 ? 'text-yellow-400' :
-                     'text-red-400'
+  const awayTone  = timeAwayMs > 0 ? 'warn' : 'good'
+  const tabTone   = tabSwitches > 0 ? 'warn' : 'good'
+  const focusTone = focusPct >= 70 ? 'good' : focusPct >= 40 ? 'warn' : 'bad'
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-      <MetricCard
+    <div className="surf-row-stats">
+      <StatTile
         label="Session Duration"
         value={formatDuration(sessionMs)}
       />
-      <MetricCard
+      <StatTile
         label="Time Away"
         value={timeAwayMs > 0 ? formatDuration(timeAwayMs) : '0s'}
-        sub={`${tabSwitches ?? 0} tab switch${(tabSwitches ?? 0) !== 1 ? 'es' : ''}`}
-        valueColor={timeAwayMs > 0 ? 'text-red-400' : 'text-green-400'}
+        sub={`${tabSwitches} tab switch${tabSwitches !== 1 ? 'es' : ''}`}
+        tone={awayTone}
       />
-      <MetricCard
+      <StatTile
         label="Tab Switches"
-        value={tabSwitches ?? 0}
-        sub="times left tab"
-        valueColor={distractColor}
+        value={tabSwitches}
+        sub="Times left tab"
+        tone={tabTone}
       />
-      <MetricCard
-        label="Fullscreen Exits"
-        value={fullscreenExits ?? 0}
-        sub="times pressed Escape"
-        valueColor={(fullscreenExits ?? 0) === 0 ? 'text-green-400' : 'text-yellow-400'}
-      />
-      <MetricCard
+      <StatTile
         label="Focus Rate"
         value={`${focusPct}%`}
-        sub="of session in focus"
-        valueColor={focusColor}
+        sub="In-focus session"
+        tone={focusTone}
       />
     </div>
   )

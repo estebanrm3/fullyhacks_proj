@@ -4,6 +4,7 @@
 // floating particles, the file-upload "hatch" card, and the gold dive button.
 
 import { useState, useRef, useEffect, useMemo, Fragment } from 'react'
+import Cursor from '../ui/Cursor.jsx'
 
 // Small circular compass-ish SVG that sits inside the empty hatch card.
 // Kept as its own component so the JSX down in the render stays readable.
@@ -63,91 +64,6 @@ function Particles() {
         <div key={m.key} className="mote" style={m.style} />
       ))}
     </div>
-  )
-}
-
-// Custom cursor: a small bright dot that snaps to the mouse + a larger
-// ring that lags behind with easing. The ring also changes shape on
-// hover / drag / error states. We use direct DOM writes via refs
-// (instead of React state) so the cursor never drops a frame.
-function Cursor({ hoverSelectors = [], dragActive, errorActive }) {
-  const dotRef = useRef(null)
-  const ringRef = useRef(null)
-  const [hovering, setHovering] = useState(false)
-
-  // Keep the latest selector list in a ref so the useEffect below
-  // can read it without having to re-subscribe every time the array
-  // identity changes. (Prevents cursor jitter on parent re-renders.)
-  const selectorsRef = useRef(hoverSelectors)
-  selectorsRef.current = hoverSelectors
-
-  useEffect(() => {
-    // Current "settled" position for the lagging ring.
-    let rx = window.innerWidth / 2
-    let ry = window.innerHeight / 2
-    // Raw mouse coords — where the dot snaps to.
-    let mx = rx
-    let my = ry
-    let pendingDot = false
-
-    // Mousemove just records the coords. We queue the actual DOM write
-    // on the next animation frame so we only paint the cursor once per frame.
-    const move = (e) => {
-      mx = e.clientX
-      my = e.clientY
-      if (!pendingDot) {
-        pendingDot = true
-        requestAnimationFrame(() => {
-          pendingDot = false
-          if (dotRef.current) {
-            dotRef.current.style.transform = `translate3d(${mx}px, ${my}px, 0) translate(-50%,-50%)`
-          }
-        })
-      }
-    }
-    window.addEventListener('mousemove', move, { passive: true })
-
-    // The ring smoothly chases the mouse with a simple lerp. Runs every frame.
-    let raf
-    const tick = () => {
-      rx += (mx - rx) * 0.18
-      ry += (my - ry) * 0.18
-      if (ringRef.current) {
-        ringRef.current.style.transform = `translate3d(${rx}px, ${ry}px, 0) translate(-50%,-50%)`
-      }
-      raf = requestAnimationFrame(tick)
-    }
-    tick()
-
-    // When the mouse enters/leaves an "interactive" element (hatch, dive btn,
-    // clear btn), flip the ring to its larger hover style.
-    const over = (e) => {
-      const sels = selectorsRef.current
-      const match = sels.some((sel) => e.target.closest && e.target.closest(sel))
-      setHovering((prev) => (prev === match ? prev : match))
-    }
-    document.addEventListener('mouseover', over, { passive: true })
-
-    return () => {
-      window.removeEventListener('mousemove', move)
-      document.removeEventListener('mouseover', over)
-      cancelAnimationFrame(raf)
-    }
-  }, [])
-
-  return (
-    <Fragment>
-      <div
-        ref={ringRef}
-        className={
-          'cursor-ring' +
-          (hovering ? ' hover' : '') +
-          (dragActive ? ' drag' : '') +
-          (errorActive ? ' err' : '')
-        }
-      />
-      <div ref={dotRef} className="cursor-dot" />
-    </Fragment>
   )
 }
 
