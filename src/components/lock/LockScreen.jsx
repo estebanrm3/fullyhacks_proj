@@ -5,6 +5,7 @@ import { useSession } from '../../hooks/useSession.js'
 import { verifySubmission } from '../../lib/gemini.js'
 import { fileToGeminiParts } from '../../lib/fileUtils.js'
 import Cursor from '../ui/Cursor.jsx'
+import WebcamProctor from './WebcamProctor.jsx'
 
 // Elements the custom cursor should visually "snap onto" — the ring
 // expands to its hover size when the pointer enters any of these.
@@ -341,6 +342,9 @@ export default function LockScreen({ file, arriving, onSubmit }) {
           </div>
         </div>
       </div>
+
+      {/* Webcam presence + phone detection widget */}
+      <WebcamProctor />
 
       {/* Custom cursor — mounted last so it paints over everything. */}
       <Cursor hoverSelectors={LOCK_HOVER_SELECTORS} />

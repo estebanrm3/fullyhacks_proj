@@ -7,6 +7,9 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    exclude: ['@mediapipe/tasks-vision'],
+  },
   server: {
     port: 3000,
     strictPort: true, // fail fast instead of silently picking another port

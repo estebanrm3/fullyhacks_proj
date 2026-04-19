@@ -41,42 +41,35 @@ function StatTile({ label, value, sub, tone = '' }) {
 export default function MetricsRow({
   startTime,
   endTime,
-  tabSwitches = 0,
-  events = [],
+  tabSwitches     = 0,
+  events          = [],
+  cameraAways     = 0,
+  phoneDetections = 0,
 }) {
   const sessionMs  = startTime && endTime ? new Date(endTime) - new Date(startTime) : 0
   const timeAwayMs = calcTimeAway(events)
   const focusMs    = Math.max(0, sessionMs - timeAwayMs)
   const focusPct   = sessionMs > 0 ? Math.round((focusMs / sessionMs) * 100) : 100
 
-  const awayTone  = timeAwayMs > 0 ? 'warn' : 'good'
-  const tabTone   = tabSwitches > 0 ? 'warn' : 'good'
-  const focusTone = focusPct >= 70 ? 'good' : focusPct >= 40 ? 'warn' : 'bad'
+  const awayTone  = timeAwayMs > 0      ? 'warn' : 'good'
+  const tabTone   = tabSwitches > 0     ? 'warn' : 'good'
+  const camTone   = cameraAways > 2     ? 'bad'  : cameraAways > 0 ? 'warn' : 'good'
+  const phoneTone = phoneDetections > 0 ? 'warn' : 'good'
+  const focusTone = focusPct >= 70      ? 'good' : focusPct >= 40  ? 'warn' : 'bad'
 
   return (
     <div className="surf-row-stats">
-      <StatTile
-        label="Session Duration"
-        value={formatDuration(sessionMs)}
-      />
+      <StatTile label="Session Duration" value={formatDuration(sessionMs)} />
       <StatTile
         label="Time Away"
         value={timeAwayMs > 0 ? formatDuration(timeAwayMs) : '0s'}
         sub={`${tabSwitches} tab switch${tabSwitches !== 1 ? 'es' : ''}`}
         tone={awayTone}
       />
-      <StatTile
-        label="Tab Switches"
-        value={tabSwitches}
-        sub="Times left tab"
-        tone={tabTone}
-      />
-      <StatTile
-        label="Focus Rate"
-        value={`${focusPct}%`}
-        sub="In-focus session"
-        tone={focusTone}
-      />
+      <StatTile label="Tab Switches"  value={tabSwitches}      sub="Times left tab"   tone={tabTone} />
+      <StatTile label="Off Camera"    value={cameraAways}      sub="Left the desk"    tone={camTone} />
+      <StatTile label="Phone Spotted" value={phoneDetections}  sub="Detected on cam"  tone={phoneTone} />
+      <StatTile label="Focus Rate"    value={`${focusPct}%`}   sub="In-focus session" tone={focusTone} />
     </div>
   )
 }

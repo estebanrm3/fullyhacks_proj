@@ -16,8 +16,8 @@ export function useEventTracker() {
     if (type === 'fullscreen_exit') setFullscreenExits(n => n + 1)
     if (type === 'pause')           setPauses(n => n + 1)
 
-    // tab_return is local-only — used for time-away calculation, not in Supabase schema
-    if (type === 'tab_return') return
+    // Local-only events — not in Supabase schema, used for time-away/timeline calculations
+    if (['tab_return', 'camera_away', 'camera_return'].includes(type)) return
 
     // Persist to Supabase — fire and forget, log errors but don't block UI
     supabase.from('events').insert(event).then(({ error }) => {

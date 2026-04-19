@@ -24,12 +24,19 @@ export function useSession() {
   async function finalizeSession(submissionText, aiReport) {
     const endTs = new Date().toISOString()
 
+    // Embed camera stats inside the ai_report JSONB so no schema change is needed
+    const enrichedReport = {
+      ...aiReport,
+      camera_aways:     ctx.cameraAways,
+      phone_detections: ctx.phoneDetections,
+    }
+
     const { error } = await supabase
       .from('sessions')
       .update({
         submission:       submissionText,
         ended_at:         endTs,
-        ai_report:        aiReport,
+        ai_report:        enrichedReport,
         tab_switches:     ctx.tabSwitches,
         fullscreen_exits: ctx.fullscreenExits,
         pauses:           ctx.pauses,
