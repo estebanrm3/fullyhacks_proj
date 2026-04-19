@@ -1,7 +1,6 @@
 import { GoogleGenAI } from '@google/genai'
 
 const TEXT_MODEL = 'gemini-flash-latest'
-const LIVE_MODEL = 'gemini-3.1-flash-live-preview'
 
 const ANALYZE_PROMPT = `You are a study coach. Analyze this student assignment and provide structured guidance to help them understand what to do -- do NOT give direct answers or complete any of the work for them.
 
@@ -94,9 +93,6 @@ export async function createLiveTokenPayload() {
       uses: 1,
       newSessionExpireTime: new Date(now + 60 * 1000).toISOString(),
       expireTime: new Date(now + 30 * 60 * 1000).toISOString(),
-      liveConnectConstraints: {
-        model: LIVE_MODEL,
-      },
       httpOptions: {
         apiVersion: 'v1alpha',
       },

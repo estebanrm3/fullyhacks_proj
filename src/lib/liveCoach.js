@@ -121,22 +121,37 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
   const state = {
     status: 'idle',       // 'idle' | 'connecting' | 'listening' | 'speaking' | 'error' | 'closed'
     muted: false,
+    autoMuted: false,
     paused: false,
     error: null,
   }
   const emit = () => onStateChange?.({ ...state })
 
-  function setStatus(s) { state.status = s; emit() }
-
   let session = null
   let playbackGain = null
   let playbackAnalyser = null
+  let playbackSources = new Set()
   let nextPlaybackTime = 0
   let micStream = null
   let micSource = null
   let micWorkletNode = null
   let micAnalyser = null
   let mediaStreamForMute = null
+
+  function syncMicState() {
+    if (!mediaStreamForMute) return
+    const enabled = !(state.muted || state.autoMuted || state.paused)
+    mediaStreamForMute.getAudioTracks().forEach((track) => {
+      track.enabled = enabled
+    })
+  }
+
+  function setStatus(s) {
+    state.status = s
+    state.autoMuted = s === 'speaking'
+    syncMicState()
+    emit()
+  }
 
   async function ensureAudioCtx() {
     if (audioCtx) return audioCtx
@@ -158,6 +173,16 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
     return audioCtx
   }
 
+  function stopPlayback() {
+    nextPlaybackTime = audioCtx?.currentTime ?? 0
+    for (const src of playbackSources) {
+      try { src.onended = null } catch {}
+      try { src.stop(0) } catch {}
+      try { src.disconnect() } catch {}
+    }
+    playbackSources.clear()
+  }
+
   function playAudioChunk(b64) {
     if (!audioCtx || !playbackGain) return
     const pcm = base64ToFloat32(b64)
@@ -168,12 +193,20 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
     src.connect(playbackGain)
     const now = audioCtx.currentTime
     const start = Math.max(now, nextPlaybackTime)
+    playbackSources.add(src)
     src.start(start)
     nextPlaybackTime = start + buffer.duration
     if (state.status !== 'speaking') setStatus('speaking')
     src.onended = () => {
+      playbackSources.delete(src)
+      try { src.disconnect() } catch {}
       // When queue drains, flip back to listening
-      if (audioCtx && audioCtx.currentTime >= nextPlaybackTime - 0.02 && state.status === 'speaking') {
+      if (
+        audioCtx &&
+        playbackSources.size === 0 &&
+        audioCtx.currentTime >= nextPlaybackTime - 0.02 &&
+        state.status === 'speaking'
+      ) {
         setStatus('listening')
       }
     }
@@ -185,6 +218,7 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     })
     mediaStreamForMute = micStream
+    syncMicState()
     micSource = audioCtx.createMediaStreamSource(micStream)
 
     micAnalyser = audioCtx.createAnalyser()
@@ -193,7 +227,7 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
 
     micWorkletNode = new AudioWorkletNode(audioCtx, 'mic-downsampler')
     micWorkletNode.port.onmessage = (e) => {
-      if (state.muted || state.paused || !session) return
+      if (state.muted || state.autoMuted || state.paused || !session) return
       const data = float32ToBase64Pcm(e.data)
       try {
         session.sendRealtimeInput({
@@ -232,7 +266,10 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
       const { token } = await tokenResponse.json()
       if (!token) throw new Error('Live token was not returned by the server')
 
-      ai = new GoogleGenAI({ apiKey: token, apiVersion: 'v1alpha' })
+      ai = new GoogleGenAI({
+        apiKey: token,
+        httpOptions: { apiVersion: 'v1alpha' },
+      })
       await ensureAudioCtx()
 
       session = await ai.live.connect({
@@ -249,7 +286,7 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
           onmessage: (msg) => {
             // Interruption -- agent stopped mid-sentence because user spoke
             if (msg?.serverContent?.interrupted) {
-              nextPlaybackTime = audioCtx?.currentTime ?? 0
+              stopPlayback()
               setStatus('listening')
             }
             const parts = msg?.serverContent?.modelTurn?.parts ?? []
@@ -272,12 +309,6 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
 
       await startMic()
       setStatus('listening')
-
-      // Kick off the first turn so the coach greets the student
-      session.sendClientContent({
-        turns: [{ role: 'user', parts: [{ text: 'Start the session -- greet me and ask where to begin.' }] }],
-        turnComplete: true,
-      })
     } catch (e) {
       state.error = e?.message || 'Failed to start voice coach'
       setStatus('error')
@@ -287,15 +318,14 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
 
   function setMuted(m) {
     state.muted = m
-    if (mediaStreamForMute) {
-      mediaStreamForMute.getAudioTracks().forEach(t => { t.enabled = !m })
-    }
+    syncMicState()
     emit()
   }
 
   function setPaused(p) {
     state.paused = p
     if (playbackGain) playbackGain.gain.value = p ? 0 : 1
+    syncMicState()
     emit()
   }
 
@@ -303,6 +333,7 @@ export function createLiveCoach({ analysis, workText, onStateChange }) {
     try { session?.close() } catch {}
     session = null
     ai = null
+    stopPlayback()
     stopMic()
     try { playbackGain?.disconnect() } catch {}
     try { playbackAnalyser?.disconnect() } catch {}
