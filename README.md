@@ -29,9 +29,10 @@ Deep Dive is a three-phase focus ritual disguised as a deep-sea expedition.
 ## Highlights
 
 - **Fullscreen lock w/ escape tracking** — tab-switches, fullscreen exits, and pauses are timestamped to Supabase so the post-session view can reconstruct exactly when attention drifted.
+- **Webcam attention tracking** — a toggleable camera widget uses MediaPipe face detection to catch when you walk off-screen, and Gemini Vision to flag when a phone enters frame. Subtle audio beeps nudge you back if you stay away too long.
 - **Voice-first AI buddy (Coral)** — Gemini Live powers a low-latency conversation loop. She asks Socratic questions instead of dropping answers.
 - **AI verification gate** — Gemini Flash reviews the submission against the original assignment before the lock releases. No sneaking out with an empty doc.
-- **Surface dashboard** — HUD-styled ocean-surface scene with a drifting bioluminescent sea turtle, an animated performance ring, five metric tiles, a time-based focus timeline, and a handwritten-style encouragement from Coral.
+- **Surface dashboard** — HUD-styled ocean-surface scene with a drifting bioluminescent sea turtle, an animated performance ring, metric tiles for off-camera / phone-spotted events, a time-based focus timeline, AI-generated study insights, and a handwritten-style encouragement from Coral.
 - **Cohesive visual language** — three separate screens (Setup / Lock / Surface) but one design DNA: Syne + DM Sans + Fraunces, corner-bracket HUD cards, teal / sand / danger token palette, god-ray ambient lighting.
 
 ---
@@ -41,10 +42,11 @@ Deep Dive is a three-phase focus ritual disguised as a deep-sea expedition.
 ```
 1. Paste your assignment         →  Click "Dive In"
 2. Browser locks fullscreen      →  Ocean HUD, voice AI, focus timer
-3. Work in the center panel      →  Coral listens and asks questions
-4. Click "Surface"               →  Gemini verifies your submission
-5. Dashboard surfaces            →  Score, metrics, focus timeline, encouragement
-6. "Return to Surface"           →  Back to the landing page for the next dive
+3. Flip on the camera (optional) →  Proctor watches for off-screen + phone use
+4. Work in the center panel      →  Coral listens and asks questions
+5. Click "Surface"               →  Gemini verifies your submission
+6. Dashboard surfaces            →  Score, metrics, focus timeline, AI insights
+7. "Return to Surface"           →  Back to the landing page for the next dive
 ```
 
 ---
@@ -66,6 +68,8 @@ Deep Dive is a three-phase focus ritual disguised as a deep-sea expedition.
 | Charts | Recharts (focus timeline) |
 | AI Voice | Gemini Live API (`gemini-2.5-flash-native-audio-preview-12-2025`) |
 | AI Text | Gemini Flash (`gemini-flash-latest`) |
+| AI Vision | Gemini Flash — phone-in-frame detection |
+| Face Detection | MediaPipe Tasks Vision (`blaze_face_short_range`, runs in-browser) |
 | Database | Supabase (Postgres + Row-Level Security) |
 | Image Assets | nano-banana (Gemini image extension) |
 | Hosting | Vercel |
@@ -98,7 +102,7 @@ VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 GEMINI_API_KEY=your_gemini_api_key
 ```
 
-`GEMINI_API_KEY` stays server-side. The browser only calls `/api/gemini` and `/api/live-token`, so the root Gemini key is not bundled into the client.
+`GEMINI_API_KEY` stays server-side. The browser only calls `/api/gemini` (text analysis + phone-vision) and `/api/live-token` (ephemeral Coral voice tokens), so the root Gemini key is never bundled into the client.
 
 ### Database Schema
 
@@ -121,6 +125,9 @@ create table events (
   type        text check (type in ('tab_switch','tab_return','fullscreen_exit','pause','resume')),
   timestamp   timestamptz default now()
 );
+-- Camera-derived events (camera_away / camera_return / phone_detected) are kept
+-- local-only to avoid schema churn; they show up in the live dashboard but
+-- are not persisted to Supabase.
 ```
 
 ### Run Locally
@@ -139,13 +146,14 @@ Open [http://localhost:3000](http://localhost:3000).
 src/
 ├── components/
 │   ├── setup/          # Phase 1 — landing + assignment input
-│   ├── lock/           # Phase 2 — fullscreen ocean HUD + Coral voice
+│   ├── lock/           # Phase 2 — fullscreen ocean HUD + Coral voice + WebcamProctor
 │   └── dashboard/      # Phase 3 — surface report
 │       ├── SummaryDashboard.jsx   # page shell, animations, turtle ambiance
 │       ├── ScoreCard.jsx          # animated performance ring
-│       ├── MetricsRow.jsx         # 4 HUD tiles (duration / away / switches / focus)
-│       └── FocusTimeline.jsx      # stacked % bar + 30s Recharts buckets
-├── hooks/              # useLockScreen, useSession, useEventTracker, useCoral
+│       ├── MetricsRow.jsx         # HUD tiles (duration / away / switches / focus / off-camera / phone)
+│       ├── FocusTimeline.jsx      # stacked % bar + 30s Recharts buckets
+│       └── StudyInsights.jsx      # Gemini-generated post-session coaching
+├── hooks/              # useLockScreen, useSession, useEventTracker, useWebcamProctor, useCoral
 ├── lib/                # supabase.js, gemini.js, liveCoach.js
 ├── context/            # SessionContext — global session state
 └── styles/
@@ -161,6 +169,8 @@ Full architecture notes, API patterns, and component ownership → [`context.md`
 
 ## Recent Changes
 
+- **Webcam proctor + phone detection** — new toggleable camera widget on the lock screen. MediaPipe face detection runs locally every 1.5s to catch you stepping away; Gemini Vision is called every 3s (proxied through `/api/gemini`) to detect a phone in frame. Stay away 60s and a gentle beep fires; phone sightings trigger a higher-pitch chirp with a 20s cooldown. Off-camera and phone events are folded into the Focus Timeline and get their own dashboard tiles.
+- **AI study insights card** — the surface dashboard now asks Gemini for a personalized post-session breakdown: what you did well, what cost you focus, and one tip for next time. Cached on the session context so it renders once per dive.
 - **Surface dashboard rebuild** — Phase 3 now matches the visual DNA of the Setup and Lock screens. Corner-bracket HUD cards, staggered entrance animations, editorial italics hero, and a `surface-bg.png` looking up at the ocean surface with god-rays.
 - **Sea turtle ambient asset** — replaced the decorative fish with a bioluminescent teal sea turtle generated via nano-banana. An inverse-luminance SVG filter (`#turtleLuma` in `index.html`) dissolves the white studio backdrop at runtime so the turtle blends into the god-ray scene — same trick the jellyfish uses on the landing page, but mirrored for a light background.
 - **Time-based focus math** — the stacked focus bar on the timeline now agrees with the Focus Rate tile. Both sum real elapsed milliseconds per state (focused / paused / distracted) by walking the event log chronologically, instead of counting 30-second buckets.
