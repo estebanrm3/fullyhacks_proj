@@ -1,12 +1,10 @@
-// LockScreen — the sealed "you're underwater now" view shown after the
-// user hits Dive In. Conceptually: the browser is locked into focus mode
-// and the user only resurfaces when their assignment is done. Visually:
-// a much darker abyss backdrop, an anglerfish floating on the left,
-// live elapsed-time + depth readouts, and a card displaying the file.
-
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSessionContext } from '../../context/SessionContext.jsx'
+import { useEventTracker } from '../../hooks/useEventTracker.js'
+import { useSession } from '../../hooks/useSession.js'
+import { verifySubmission } from '../../lib/gemini.js'
+import { fileToGeminiParts } from '../../lib/fileUtils.js'
 
-// Format a number of ms as HH:MM:SS for the elapsed-time readout.
 function prettyTime(ms) {
   const s = Math.max(0, Math.floor(ms / 1000))
   const h = String(Math.floor(s / 3600)).padStart(2, '0')
@@ -15,24 +13,24 @@ function prettyTime(ms) {
   return `${h}:${m}:${sec}`
 }
 
-// The lock screen's own particle field. Unlike the setup particles these
-// drift DOWNWARD (marine snow), fewer of them, more subdued — it should
-// feel quieter and deeper than the landing page.
+function wordCount(text) {
+  return text.trim() ? text.trim().split(/\s+/).length : 0
+}
+
 function DeepParticles() {
   const motes = useMemo(() => {
     const arr = []
     for (let i = 0; i < 45; i++) {
       const size = 1 + Math.random() * 2.4
-      const dur = 22 + Math.random() * 24          // slower than landing motes
+      const dur  = 22 + Math.random() * 24
       const delay = -Math.random() * dur
-      const dx = Math.random() * 60 - 30
+      const dx   = Math.random() * 60 - 30
       arr.push({
         key: i,
         style: {
-          width: size + 'px',
-          height: size + 'px',
+          width: size + 'px', height: size + 'px',
           left: Math.random() * 100 + 'vw',
-          top: -5 + Math.random() * 20 + 'vh',     // spawn near the top so they drift down
+          top: -5 + Math.random() * 20 + 'vh',
           animationDuration: dur + 's',
           animationDelay: delay + 's',
           '--dx': dx + 'px',
@@ -43,42 +41,43 @@ function DeepParticles() {
   }, [])
   return (
     <div className="lock-particles" aria-hidden="true">
-      {motes.map((m) => (
-        <div key={m.key} className="lock-mote" style={m.style} />
-      ))}
+      {motes.map(m => <div key={m.key} className="lock-mote" style={m.style} />)}
     </div>
   )
 }
 
-// Props:
-//   file     — the File object the user uploaded on the landing page
-//   arriving — true during the 1.8s descent transition; toggles the
-//              `.arriving` CSS class that plays the "dive in from above"
-//              keyframes. Goes false once we've fully settled in `locked`.
-export default function LockScreen({ file, arriving }) {
-  const [mounted, setMounted] = useState(false)
-  const [elapsed, setElapsed] = useState(0)        // ms since the lock started
-  const [depth, setDepth] = useState(640)          // fake depth readout in meters
-  const startRef = useRef(Date.now())              // locked-at timestamp
+export default function LockScreen({ file, arriving, onSubmit }) {
+  // ── display state ───────────────────────────────────────────────────────────
+  const [mounted,  setMounted]  = useState(false)
+  const [elapsed,  setElapsed]  = useState(0)
+  const [depth,    setDepth]    = useState(640)
+  const startRef = useRef(Date.now())
 
-  // Flip `mounted` shortly after first paint so the stage fades in via
-  // the `.in` class in lock.css (opacity 0 → 1 over 1.4s).
+  // ── work state ──────────────────────────────────────────────────────────────
+  const [workText,   setWorkText]   = useState('')
+  const [autoSaved,  setAutoSaved]  = useState(false)
+  const [verifying,  setVerifying]  = useState(false)
+  const [blockMsg,   setBlockMsg]   = useState(null)
+  const saveKey = useRef(`deepdive_work_${Date.now()}`)
+
+  // ── hooks ───────────────────────────────────────────────────────────────────
+  const { analysis, tabSwitches, fullscreenExits, setReport } = useSessionContext()
+  const { logEvent }        = useEventTracker()
+  const { finalizeSession } = useSession()
+  const logRef = useRef(logEvent)
+  useEffect(() => { logRef.current = logEvent }, [logEvent])
+
+  // ── mount + timers ──────────────────────────────────────────────────────────
   useEffect(() => {
     const t = setTimeout(() => setMounted(true), 40)
     return () => clearTimeout(t)
   }, [])
 
-  // Every second, bump the elapsed-time display.
   useEffect(() => {
-    const id = setInterval(() => {
-      setElapsed(Date.now() - startRef.current)
-    }, 1000)
+    const id = setInterval(() => setElapsed(Date.now() - startRef.current), 1000)
     return () => clearInterval(id)
   }, [])
 
-  // Depth readout oscillates gently around 640m with a tiny drift upward
-  // over time — sells the "hovering in the deep" feeling. Runs on rAF
-  // so it's smooth without eating a timer slot.
   useEffect(() => {
     let raf
     const tick = () => {
@@ -90,41 +89,99 @@ export default function LockScreen({ file, arriving }) {
     return () => cancelAnimationFrame(raf)
   }, [])
 
-  // Fallback name in case the upstream file prop is somehow missing.
-  const fname = file?.name || 'assignment.pdf'
+  // ── restore autosave on mount ───────────────────────────────────────────────
+  useEffect(() => {
+    const saved = localStorage.getItem(saveKey.current)
+    if (saved) { setWorkText(saved); setAutoSaved(true) }
+  }, [])
+
+  // ── autosave every 30s ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!workText) return
+    const id = setInterval(() => {
+      localStorage.setItem(saveKey.current, workText)
+      setAutoSaved(true)
+    }, 30000)
+    return () => clearInterval(id)
+  }, [workText])
+
+  // ── distraction tracking ────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = () => {
+      if (document.hidden) logRef.current('tab_switch')
+      else                  logRef.current('tab_return')
+    }
+    document.addEventListener('visibilitychange', handler)
+    return () => document.removeEventListener('visibilitychange', handler)
+  }, [])
+
+  useEffect(() => {
+    const handler = () => { if (!document.fullscreenElement) logRef.current('fullscreen_exit') }
+    document.addEventListener('fullscreenchange', handler)
+    return () => document.removeEventListener('fullscreenchange', handler)
+  }, [])
+
+  useEffect(() => {
+    const handler = e => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [])
+
+  // ── submit ──────────────────────────────────────────────────────────────────
+  const words = wordCount(workText)
+  const canSubmit = words >= 20 && !verifying
+
+  const handleSurface = async () => {
+    if (!canSubmit) return
+    setVerifying(true)
+    setBlockMsg(null)
+
+    // Save latest text before submitting
+    localStorage.setItem(saveKey.current, workText)
+
+    try {
+      const assignmentParts = await fileToGeminiParts(file)
+      const report = await verifySubmission(assignmentParts, [{ text: workText }])
+
+      if (report.completion_status === 'complete') {
+        setReport(report)
+        finalizeSession(workText, report).catch(() => {})
+        onSubmit()
+      } else {
+        const why = report.unlock_reason || ''
+        setBlockMsg(
+          report.completion_status === 'partial'
+            ? `Almost there — ${why || 'some requirements still need more attention.'}`
+            : `Not yet — ${why || "the assignment requirements haven't been fully addressed."}`
+        )
+        setVerifying(false)
+      }
+    } catch {
+      setBlockMsg('Verification failed — please try again.')
+      setVerifying(false)
+    }
+  }
+
+  const fname = file?.name ?? 'assignment.pdf'
+  const totalDistractions = tabSwitches + fullscreenExits
 
   return (
-    // `.in` fades the whole stage in. `.arriving` plays the dive-from-above
-    // keyframes. Both classes are driven by React state, not CSS hover.
     <div className={'lock-stage ' + (mounted ? 'in ' : '') + (arriving ? 'arriving' : '')}>
-      {/* Deep-ocean backdrop photo. */}
+      {/* ── backgrounds ──────────────────────────────────────────────────── */}
       <div className="lock-backdrop" />
-      {/* Darkening gradient over the backdrop — sinks the bottom to near-black. */}
       <div className="lock-grade" />
-      {/* Radial vignette to pull focus toward the center of the screen. */}
       <div className="lock-vignette" />
-
       <DeepParticles />
-
-      {/* Anglerfish photo, run through the same luminance-key filter as
-          the jellyfish (defined in index.html) so its black background
-          goes transparent and only the bioluminescence shines through. */}
       <img
-        src="/assets/deep-fish.png"
-        alt=""
+        src="/assets/deep-fish.png" alt=""
         className="deep-creature"
-        // If the asset is ever missing, just hide the img instead of
-        // showing a broken icon — the scene still reads without it.
-        onError={(e) => { e.currentTarget.style.display = 'none' }}
+        onError={e => { e.currentTarget.style.display = 'none' }}
       />
-      {/* Teal aura behind the fish for extra bloom. */}
       <div className="deep-creature-halo" />
-
-      {/* Film grain — same trick as the landing page. */}
       <div className="lock-noise" />
 
       <div className="lock-content">
-        {/* Top bar: brand mark + status/depth/elapsed readouts. */}
+        {/* ── top bar ──────────────────────────────────────────────────────── */}
         <div className="lock-top">
           <div className="wordmark">
             <div className="wordmark-icon">
@@ -149,41 +206,117 @@ export default function LockScreen({ file, arriving }) {
               <span className="k">ELAPSED</span>
               <span className="v mono">{prettyTime(elapsed)}</span>
             </div>
+            <div className="lock-meta-item">
+              <span className="k">DISTRACTIONS</span>
+              <span className={'v' + (totalDistractions > 0 ? ' distracted' : '')}>{totalDistractions}</span>
+            </div>
           </div>
         </div>
 
-        {/* Middle block — editorial copy + the assignment card. */}
+        {/* ── center panels ────────────────────────────────────────────────── */}
         <div className="lock-center">
-          <div className="lock-kicker">SESSION — IN PROGRESS</div>
-          <h1 className="lock-headline">
-            You're <em>down here</em> now.
-          </h1>
-          <p className="lock-sub">
-            The hatch is sealed. <span className="accent">Coral</span> is watching.
-            You surface only when the work is done — not a second sooner.
-          </p>
+          <div className="lock-kicker">SESSION — IN PROGRESS · {fname}</div>
 
-          {/* Glass card showing the filename + an indefinite sweeping
-              progress bar. Progress is ornamental for now — Phase 3 will
-              swap this for a real completion signal. */}
-          <div className="lock-file">
-            <div className="lock-file-head">
-              <span className="tag">ASSIGNMENT</span>
-              <span className="dot" />
-              <span className="pulse">SEALED</span>
+          <div className="lock-panels">
+            {/* Left: assignment insights */}
+            <div className="lock-panel lock-insights-panel">
+              {analysis ? (
+                <>
+                  <div className="panel-header">
+                    <span className="panel-tag">ASSIGNMENT BRIEF</span>
+                    <span className={'difficulty-badge diff-' + (analysis.estimated_difficulty ?? 'medium').toLowerCase()}>
+                      {(analysis.estimated_difficulty ?? 'medium').toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="panel-title">{analysis.title}</div>
+
+                  {analysis.objectives?.length > 0 && (
+                    <div className="insight-section">
+                      <div className="insight-tag">OBJECTIVES</div>
+                      <ul className="insight-list">
+                        {analysis.objectives.map((o, i) => <li key={i}>{o}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {analysis.key_concepts?.length > 0 && (
+                    <div className="insight-section">
+                      <div className="insight-tag">KEY CONCEPTS</div>
+                      <ul className="insight-list">
+                        {analysis.key_concepts.map((c, i) => <li key={i}>{c}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {analysis.suggested_approach?.length > 0 && (
+                    <div className="insight-section">
+                      <div className="insight-tag">HOW TO APPROACH</div>
+                      <ol className="insight-list">
+                        {analysis.suggested_approach.map((s, i) => <li key={i}>{s}</li>)}
+                      </ol>
+                    </div>
+                  )}
+                  {analysis.things_to_research?.length > 0 && (
+                    <div className="insight-section">
+                      <div className="insight-tag">TOPICS TO REVIEW</div>
+                      <ul className="insight-list">
+                        {analysis.things_to_research.map((t, i) => <li key={i}>{t}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {analysis.helpful_reminder && (
+                    <div className="insight-reminder">{analysis.helpful_reminder}</div>
+                  )}
+                </>
+              ) : (
+                <div className="panel-loading">
+                  <div className="panel-spinner" />
+                  <div className="panel-loading-text">Analyzing your assignment…</div>
+                </div>
+              )}
             </div>
-            <div className="lock-file-name">{fname}</div>
-            <div className="lock-file-bar">
-              <div className="lock-file-bar-fill" />
-            </div>
-            <div className="lock-file-foot">
-              <span>DESCENT LOCKED</span>
-              <span className="mono">∞ — awaiting completion</span>
+
+            {/* Right: work area */}
+            <div className="lock-panel lock-work-panel">
+              <div className="panel-header">
+                <span className="panel-tag">YOUR WORK</span>
+                <span className="work-wordcount">{words} word{words !== 1 ? 's' : ''}</span>
+              </div>
+
+              <textarea
+                className="work-textarea"
+                value={workText}
+                onChange={e => { setWorkText(e.target.value); setBlockMsg(null) }}
+                placeholder="Start writing your work here…"
+                spellCheck
+              />
+
+              {blockMsg && (
+                <div className="verify-blocked">
+                  <span className="verify-dot">●</span>
+                  <span>{blockMsg}</span>
+                </div>
+              )}
+
+              <div className="work-footer">
+                <span className="work-autosave">
+                  {autoSaved ? '● Auto-saved' : words > 0 ? '○ Not saved yet' : ''}
+                </span>
+                <button
+                  className={'surface-btn' + (!canSubmit ? ' disabled' : '') + (verifying ? ' verifying' : '')}
+                  disabled={!canSubmit}
+                  onClick={handleSurface}
+                  title={words < 20 ? 'Write at least 20 words to submit' : ''}
+                >
+                  {verifying
+                    ? <><span className="surface-spinner" /> Verifying…</>
+                    : 'Surface 🌊'
+                  }
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Bottom row: warning line on the left, coords signature on the right. */}
+        {/* ── bottom bar ───────────────────────────────────────────────────── */}
         <div className="lock-bottom">
           <div className="lock-warn">
             <span className="warn-dot" />

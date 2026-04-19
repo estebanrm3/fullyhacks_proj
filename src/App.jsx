@@ -1,61 +1,74 @@
-// Top-level app shell. Owns the phase machine that drives the whole experience:
-//   setup      → the landing page with the file hatch
-//   descending → the ~1.8s transition animation playing between screens
-//   locked     → the sealed "you're underwater now" view
-//
-// Everything else (styles, subcomponents) hangs off of these three states.
-
 import { useState } from 'react'
-import SetupScreen from './components/setup/SetupScreen.jsx'
-import LockScreen from './components/lock/LockScreen.jsx'
+import SetupScreen      from './components/setup/SetupScreen.jsx'
+import LockScreen       from './components/lock/LockScreen.jsx'
+import SummaryDashboard from './components/dashboard/SummaryDashboard.jsx'
+import { useSessionContext } from './context/SessionContext.jsx'
+import { useSession } from './hooks/useSession.js'
+import { analyzeAssignment } from './lib/gemini.js'
+import { fileToGeminiParts } from './lib/fileUtils.js'
 import './styles/lock.css'
 
-// How long the descent animation runs. Needs to be long enough for the
-// setup screen to fully sink out AND the lock screen to rise in —
-// see `.stage.descending` and `.lock-stage.arriving` keyframes in lock.css.
 const DESCENT_MS = 1800
 
 export default function App() {
-  const [phase, setPhase] = useState('setup')
-  const [file, setFile] = useState(null)
+  const [phase, setPhase]               = useState('setup')
+  const [assignmentFile, setAssignmentFile] = useState(null)
 
-  // Fired when the user clicks Dive In on the landing page.
-  // Kicks off fullscreen + flips phases so the screens crossfade.
-  const handleStart = async (f) => {
-    if (phase !== 'setup') return // guard against double-clicks
-    setFile(f)
+  const { setAnalysis, setAssignment, setStartTime } = useSessionContext()
+  const { createSession } = useSession()
+
+  const handleStart = async (file) => {
+    if (phase !== 'setup') return
+    setAssignmentFile(file)
+    setAssignment(file.name)
+    setStartTime(new Date())
     setPhase('descending')
 
-    // Ask the browser to go fullscreen. Browsers require this to be
-    // triggered from a real user click — which it is, since the click
-    // handler chain hasn't broken yet.
     try {
       if (document.fullscreenEnabled && !document.fullscreenElement) {
         await document.documentElement.requestFullscreen({ navigationUI: 'hide' })
       }
-    } catch {
-      // If the user dismisses the prompt, we still descend — fullscreen
-      // is a nice-to-have, not a blocker for the lock mechanic.
-    }
+    } catch {}
 
-    // After the descent animation wraps, commit fully to the locked view.
+    // Analyze assignment in background — lock screen shows a loading spinner until ready
+    fileToGeminiParts(file)
+      .then(parts => analyzeAssignment(parts))
+      .then(analysis => setAnalysis(analysis))
+      .catch(() => setAnalysis(null))
+
+    // Persist session to Supabase (non-blocking — app works without it)
+    createSession(file.name).catch(() => {})
+
     setTimeout(() => setPhase('locked'), DESCENT_MS)
   }
 
-  // We intentionally keep BOTH screens mounted during 'descending' so the
-  // transition can cross-fade smoothly. Once 'locked' takes over we drop
-  // the setup screen from the tree.
+  const handleSubmit = () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+    setPhase('dashboard')
+  }
+
+  const handleDiveAgain = () => {
+    setAssignmentFile(null)
+    setAnalysis(null)
+    setPhase('setup')
+  }
+
   return (
     <>
-      {phase !== 'locked' && (
+      {phase !== 'locked' && phase !== 'dashboard' && (
         <SetupScreen onStart={handleStart} descending={phase === 'descending'} />
       )}
-      {phase !== 'setup' && (
-        <LockScreen file={file} arriving={phase === 'descending'} />
+      {(phase === 'descending' || phase === 'locked') && (
+        <LockScreen
+          file={assignmentFile}
+          arriving={phase === 'descending'}
+          onSubmit={handleSubmit}
+        />
       )}
-      {/* Dark translucent sheet that sweeps down during the dive —
-          gives the feeling of sinking through water. */}
       {phase === 'descending' && <div className="descent-veil go" />}
+      {phase === 'dashboard' && (
+        <SummaryDashboard onDiveAgain={handleDiveAgain} />
+      )}
     </>
   )
 }

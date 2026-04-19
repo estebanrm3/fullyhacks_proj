@@ -21,14 +21,16 @@
 
 html, body {
   height: 100%;
-  overflow: hidden;
   background: #020610;
   color: var(--surface);
   font-family: 'DM Sans', sans-serif;
-  cursor: none;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
+
+/* Custom cursor and overflow scoped to the setup screen only */
+.stage, .stage * { cursor: none; }
+.stage { overflow: hidden; }
 *::selection { background: var(--seafoam); color: var(--deep-navy); }
 
 .display { font-family: 'Syne', sans-serif; }
@@ -41,7 +43,6 @@ html, body {
   position: relative;
   width: 100vw;
   height: 100vh;
-  overflow: hidden;
   perspective: 1400px;
   background: #020610;
 }
@@ -319,21 +320,23 @@ html, body {
 }
 
 .headline {
-  font-family: 'Fraunces', serif;
-  font-weight: 300;
-  font-style: italic;
-  font-size: clamp(56px, 6.8vw, 108px);
-  line-height: 0.92;
-  letter-spacing: -0.02em;
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-style: normal;
+  font-size: clamp(28px, 3.4vw, 52px);
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--surface);
-  text-shadow: 0 2px 30px rgba(0,0,0,0.5);
+  text-shadow: 0 0 16px rgba(72,202,228,0.35);
 }
 .headline em {
-  font-style: italic;
-  background: linear-gradient(135deg, #9BEDEF 0%, #48CAE4 40%, #0E7C7B 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+  font-style: normal;
+  color: var(--seafoam);
+  -webkit-text-fill-color: var(--seafoam);
+  background: none;
+  -webkit-background-clip: unset;
+  background-clip: unset;
 }
 
 .sub {
